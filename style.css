@@ -1,0 +1,423 @@
+/* ==============================================================================
+   iLION APPLE SPECIALIST - DESIGN SYSTEM (INSPIRADO EM DRIBBLE / FIGMA PRO)
+   Estrutura: Sidebar Dark Minimalista + Canvas Sofisticado com Pílulas e Cards 3XL
+   ============================================================================== */
+
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+
+:root {
+    --bg-canvas: #f6f7fa;
+    --card-bg: #ffffff;
+    --card-border: #eef0f4;
+    --text-primary: #121316;
+    --text-secondary: #64748b;
+    --text-muted: #94a3b8;
+    --sidebar-bg: #121418;
+    --sidebar-border: #1e2229;
+    --sidebar-text: #94a3b8;
+    --sidebar-active: #ffffff;
+    --accent-yellow: #facc15;
+    --accent-blue: #0071e3;
+    --accent-blue-hover: #0077ed;
+    --accent-emerald: #10b981;
+    --accent-purple: #8b5cf6;
+    --accent-rose: #f43f5e;
+
+    /* Curvas e Física Fluidas do iOS (Apple Human Interface Guidelines) */
+    --ios-spring: cubic-bezier(0.16, 1, 0.3, 1);
+    --ios-sheet: cubic-bezier(0.32, 0.72, 0, 1);
+    --ios-bounce: cubic-bezier(0.34, 1.56, 0.64, 1);
+    --ios-snap: cubic-bezier(0.2, 0, 0, 1);
+}
+
+/* Modo Escuro Opcional (Toggle) */
+body.dark-mode {
+    --bg-canvas: #0d0f12;
+    --card-bg: #16181d;
+    --card-border: #232730;
+    --text-primary: #f8fafc;
+    --text-secondary: #94a3b8;
+    --text-muted: #64748b;
+    --sidebar-bg: #090a0d;
+    --sidebar-border: #1a1d24;
+}
+
+body {
+    font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background-color: var(--bg-canvas);
+    color: var(--text-primary);
+    transition: background-color 0.25s ease, color 0.25s ease;
+}
+
+.font-mono {
+    font-family: 'JetBrains Mono', monospace;
+}
+
+/* Scrollbar fina e moderna */
+::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+    border-radius: 9999px;
+}
+body.dark-mode ::-webkit-scrollbar-thumb {
+    background: #334155;
+}
+
+/* Cards com cantos super arredondados inspirados no Dribbble (rounded-3xl) */
+.bento-card {
+    background-color: var(--card-bg);
+    border: 1px solid var(--card-border);
+    border-radius: 1.5rem; /* 24px */
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02), 0 4px 12px rgba(0, 0, 0, 0.015);
+    transition: transform 0.28s var(--ios-spring), box-shadow 0.28s var(--ios-spring), border-color 0.2s ease;
+    will-change: transform, box-shadow;
+}
+
+.bento-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.05);
+}
+
+body.dark-mode .bento-card:hover {
+    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.35);
+    border-color: #334155;
+}
+
+/* Card Principal Escuro de Destaque (Referência Imagem 1) */
+.hero-metric-card {
+    background: #111317;
+    color: #ffffff;
+    border-radius: 1.5rem;
+    box-shadow: 0 10px 25px -5px rgba(17, 19, 23, 0.3);
+    transition: transform 0.28s var(--ios-spring), box-shadow 0.28s var(--ios-spring);
+}
+
+.hero-metric-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 14px 32px -4px rgba(17, 19, 23, 0.45);
+}
+
+/* ==============================================================================
+   FÍSICA TÁTIL E MICRO-INTERAÇÕES ESTILO IOS (HAPTIC TOUCH FEEL)
+   ============================================================================== */
+button, 
+.btn-pill-primary, 
+.btn-pill-secondary, 
+.pill-tab, 
+.sidebar-link,
+.ios-touch {
+    transition: transform 0.16s var(--ios-snap), 
+                box-shadow 0.22s var(--ios-spring), 
+                background-color 0.2s ease, 
+                color 0.2s ease,
+                opacity 0.2s ease,
+                border-color 0.2s ease;
+    -webkit-tap-highlight-color: transparent;
+    user-select: none;
+}
+
+button:active, 
+.btn-pill-primary:active, 
+.btn-pill-secondary:active, 
+.pill-tab:active, 
+.sidebar-link:active,
+.ios-touch:active {
+    transform: scale(0.962) !important;
+}
+
+/* Pílulas de filtro e botões estilo Vault / Dribbble */
+.pill-tab {
+    border-radius: 9999px;
+    padding: 0.45rem 1rem;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    cursor: pointer;
+    border: 1px solid transparent;
+}
+
+.pill-tab.active {
+    background-color: #121316;
+    color: #ffffff;
+    box-shadow: 0 2px 10px rgba(18, 19, 22, 0.18);
+}
+
+body.dark-mode .pill-tab.active {
+    background-color: #ffffff;
+    color: #0f1115;
+}
+
+.pill-tab.inactive {
+    background-color: var(--card-bg);
+    color: var(--text-secondary);
+    border-color: var(--card-border);
+}
+
+.pill-tab.inactive:hover {
+    color: var(--text-primary);
+    border-color: #cbd5e1;
+}
+
+/* Botões em formato de Pílula */
+.btn-pill-primary {
+    border-radius: 9999px;
+    background-color: #121316;
+    color: #ffffff;
+    padding: 0.55rem 1.25rem;
+    font-size: 0.8125rem;
+    font-weight: 700;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    box-shadow: 0 4px 12px rgba(18, 19, 22, 0.15);
+}
+
+.btn-pill-primary:hover {
+    background-color: #272a30;
+    transform: translateY(-1.5px);
+    box-shadow: 0 8px 20px rgba(18, 19, 22, 0.22);
+}
+
+body.dark-mode .btn-pill-primary {
+    background-color: #f8fafc;
+    color: #090a0d;
+}
+body.dark-mode .btn-pill-primary:hover {
+    background-color: #e2e8f0;
+}
+
+.btn-pill-secondary {
+    border-radius: 9999px;
+    background-color: var(--card-bg);
+    color: var(--text-primary);
+    border: 1px solid var(--card-border);
+    padding: 0.5rem 1.1rem;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+.btn-pill-secondary:hover {
+    background-color: #f1f5f9;
+    border-color: #cbd5e1;
+    transform: translateY(-1px);
+}
+
+body.dark-mode .btn-pill-secondary:hover {
+    background-color: #1e2229;
+}
+
+/* ==============================================================================
+   TRANSIÇÕES FLUIDAS DE TELAS (IOS VIEW CONTROLLER TRANSITION)
+   ============================================================================== */
+.ios-view-enter {
+    animation: iosViewEnter 0.36s var(--ios-spring) both;
+    will-change: transform, opacity;
+}
+
+@keyframes iosViewEnter {
+    0% {
+        opacity: 0;
+        transform: translateY(12px) scale(0.995);
+    }
+    100% {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+
+/* ==============================================================================
+   MODAIS ESTILO FOLHA DO IOS (IOS PRESENTATION SHEET COM BLUR DINÂMICO)
+   ============================================================================== */
+.ios-modal-backdrop {
+    opacity: 0;
+    backdrop-filter: blur(0px);
+    -webkit-backdrop-filter: blur(0px);
+    transition: opacity 0.26s var(--ios-sheet), 
+                backdrop-filter 0.26s var(--ios-sheet), 
+                -webkit-backdrop-filter 0.26s var(--ios-sheet);
+}
+
+.ios-modal-backdrop.active {
+    opacity: 1;
+    backdrop-filter: blur(14px) saturate(180%);
+    -webkit-backdrop-filter: blur(14px) saturate(180%);
+}
+
+.ios-modal-sheet {
+    transform: scale(0.92) translateY(24px);
+    opacity: 0;
+    transition: transform 0.34s var(--ios-spring), 
+                opacity 0.24s var(--ios-sheet);
+    will-change: transform, opacity;
+}
+
+.ios-modal-backdrop.active .ios-modal-sheet {
+    transform: scale(1) translateY(0);
+    opacity: 1;
+}
+
+.ios-modal-backdrop.closing {
+    opacity: 0 !important;
+    backdrop-filter: blur(0px) !important;
+    -webkit-backdrop-filter: blur(0px) !important;
+}
+
+.ios-modal-backdrop.closing .ios-modal-sheet {
+    transform: scale(0.93) translateY(18px) !important;
+    opacity: 0 !important;
+}
+
+/* ==============================================================================
+   ALERTAS TOAST ESTILO DYNAMIC ISLAND DO IOS (SPRING BOUNCE NO TOPO)
+   ============================================================================== */
+.ios-toast-banner {
+    animation: iosIslandDrop 0.44s var(--ios-bounce) forwards;
+    transform-origin: top center;
+    box-shadow: 0 16px 36px rgba(0, 0, 0, 0.3), 0 0 0 1px rgba(255, 255, 255, 0.12);
+}
+
+@keyframes iosIslandDrop {
+    0% {
+        opacity: 0;
+        transform: translate(-50%, -28px) scale(0.86);
+    }
+    100% {
+        opacity: 1;
+        transform: translate(-50%, 0) scale(1);
+    }
+}
+
+.ios-toast-banner.ios-toast-leaving {
+    animation: iosIslandRetract 0.28s var(--ios-sheet) forwards;
+}
+
+@keyframes iosIslandRetract {
+    0% {
+        opacity: 1;
+        transform: translate(-50%, 0) scale(1);
+    }
+    100% {
+        opacity: 0;
+        transform: translate(-50%, -22px) scale(0.88);
+    }
+}
+
+/* Anel Circular de Progresso SVG (Inspirado na Imagem 2 de Operações/Bateria) */
+.circle-progress-ring {
+    transform: rotate(-90deg);
+    transform-origin: 50% 50%;
+}
+
+.circle-progress-ring circle:last-child {
+    transition: stroke-dashoffset 0.85s var(--ios-spring), stroke 0.4s ease;
+}
+
+/* Linha da Sidebar Ativa com indicador sutil com spring do iOS */
+.sidebar-link {
+    display: flex;
+    align-items: center;
+    gap: 0.85rem;
+    padding: 0.7rem 1rem;
+    border-radius: 0.85rem;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: #94a3b8;
+    position: relative;
+}
+
+.sidebar-link:hover {
+    color: #ffffff;
+    background-color: rgba(255, 255, 255, 0.04);
+}
+
+.sidebar-link.active {
+    color: #ffffff;
+    background-color: rgba(255, 255, 255, 0.08);
+}
+
+.sidebar-link::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 50%;
+    transform: translateY(-50%) scaleY(0);
+    width: 3.5px;
+    height: 18px;
+    border-radius: 0 4px 4px 0;
+    background-color: var(--accent-yellow);
+    transition: transform 0.26s var(--ios-spring);
+}
+
+.sidebar-link.active::before {
+    transform: translateY(-50%) scaleY(1);
+}
+
+/* Inputs, Controles e Sliders estilo iOS */
+input, select, textarea {
+    transition: border-color 0.2s ease, box-shadow 0.22s var(--ios-spring), background-color 0.2s ease;
+}
+
+input:focus, select:focus, textarea:focus {
+    outline: none;
+    border-color: #121316 !important;
+    box-shadow: 0 0 0 3px rgba(18, 19, 22, 0.08) !important;
+}
+
+/* Range Slider Bateria estilo iOS */
+input[type="range"] {
+    -webkit-appearance: none;
+    appearance: none;
+    height: 6px;
+    background: #e2e8f0;
+    border-radius: 9999px;
+    outline: none;
+    transition: background 0.2s ease;
+}
+
+input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: #ffffff;
+    box-shadow: 0 2px 7px rgba(0, 0, 0, 0.25), 0 0 0 1px rgba(0, 0, 0, 0.06);
+    cursor: pointer;
+    transition: transform 0.16s var(--ios-snap), box-shadow 0.16s ease;
+}
+
+input[type="range"]::-webkit-slider-thumb:active {
+    transform: scale(1.18);
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+}
+
+tbody tr {
+    transition: background-color 0.18s var(--ios-spring);
+}
+
+/* Estilo para Impressão do Recibo / Termos */
+@media print {
+    body {
+        background-color: #ffffff !important;
+        color: #000000 !important;
+    }
+    #sidebar-container, #top-app-header, .no-print, button, .modal-backdrop {
+        display: none !important;
+    }
+    .printable-document {
+        display: block !important;
+        width: 100% !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        box-shadow: none !important;
+        border: none !important;
+    }
+}

@@ -1,0 +1,1386 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>iLion Apple Specialist | Gestão & Estoque Serializado</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        brandDark: '#121418',
+                        brandAccent: '#facc15',
+                        brandBlue: '#0071e3',
+                        canvasLight: '#f6f7fa'
+                    },
+                    borderRadius: {
+                        '3xl': '1.5rem',
+                        '4xl': '2rem'
+                    }
+                }
+            }
+        }
+    </script>
+    <!-- FontAwesome 6 Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <!-- Supabase JS Client (v2) -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <!-- Custom CSS Dribbble-inspired -->
+    <link rel="stylesheet" href="style.css">
+</head>
+<body class="bg-[#f6f7fa] text-[#121316] min-h-screen flex antialiased">
+
+    <!-- ==============================================================================
+         1. SIDEBAR MINIMALISTA ESCURA (REFERÊNCIA IMAGEM 1)
+         ============================================================================== -->
+    <aside id="sidebar-container" class="w-64 bg-[#121418] text-white flex flex-col justify-between shrink-0 h-screen sticky top-0 p-5 z-30 select-none hidden lg:flex">
+        
+        <div class="space-y-6">
+            <!-- Brand / Logo Header com leao.jpg -->
+            <div class="flex items-center gap-3 px-2 py-1 cursor-pointer" onclick="switchTab('dashboard')">
+                <div class="relative">
+                    <img src="leao.jpg" alt="iLion" class="w-10 h-10 rounded-2xl object-cover ring-2 ring-yellow-400/30">
+                    <span class="w-2.5 h-2.5 rounded-full bg-yellow-400 absolute -bottom-0.5 -right-0.5 border-2 border-[#121418]"></span>
+                </div>
+                <div>
+                    <div class="flex items-center gap-2">
+                        <span class="font-extrabold tracking-tight text-white text-lg">iLion</span>
+                        <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-yellow-400/20 text-yellow-300">Apple</span>
+                    </div>
+                    <p class="text-[11px] text-slate-400 font-medium">Especialista Store</p>
+                </div>
+            </div>
+
+            <!-- Seção de Menu Principal -->
+            <div class="space-y-1">
+                <div class="text-[10px] font-bold uppercase tracking-wider text-slate-500 px-3 py-1.5">Menu</div>
+
+                <a href="javascript:void(0)" onclick="switchTab('dashboard')" id="nav-dashboard" class="sidebar-link active">
+                    <i class="fa-solid fa-grid-2 text-sm w-4 text-center"></i>
+                    <span>Dashboard</span>
+                </a>
+
+                <a href="javascript:void(0)" onclick="switchTab('estoque')" id="nav-estoque" class="sidebar-link">
+                    <i class="fa-solid fa-mobile-screen text-sm w-4 text-center"></i>
+                    <span>Estoque Serial</span>
+                    <span id="badge-total-estoque" class="ml-auto text-[11px] px-2 py-0.5 rounded-full bg-white/10 text-slate-300 font-mono">0</span>
+                </a>
+
+                <a href="javascript:void(0)" onclick="switchTab('tradein')" id="nav-tradein" class="sidebar-link">
+                    <i class="fa-solid fa-repeat text-sm w-4 text-center"></i>
+                    <span>PDV & Trade-In</span>
+                    <span class="ml-auto text-[9px] px-1.5 py-0.5 rounded-full bg-yellow-400 text-slate-950 font-bold">TROCA</span>
+                </a>
+
+                <a href="javascript:void(0)" onclick="switchTab('crm')" id="nav-crm" class="sidebar-link">
+                    <i class="fa-solid fa-user-group text-sm w-4 text-center"></i>
+                    <span>CRM & Clientes</span>
+                </a>
+
+                <a href="javascript:void(0)" onclick="switchTab('encomendas')" id="nav-encomendas" class="sidebar-link">
+                    <i class="fa-solid fa-crosshairs text-sm w-4 text-center"></i>
+                    <span>Lista de Espera</span>
+                    <span id="badge-matches" class="ml-auto text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 font-bold hidden">MATCH</span>
+                </a>
+
+                <a href="javascript:void(0)" onclick="switchTab('posvenda')" id="nav-posvenda" class="sidebar-link">
+                    <i class="fa-solid fa-shield-check text-sm w-4 text-center"></i>
+                    <span>Pós-Venda & Ciclo</span>
+                </a>
+
+                <a href="javascript:void(0)" onclick="switchTab('documentos')" id="nav-documentos" class="sidebar-link">
+                    <i class="fa-solid fa-receipt text-sm w-4 text-center"></i>
+                    <span>Recibos & Termos</span>
+                </a>
+
+                <a href="javascript:void(0)" onclick="switchTab('modelos')" id="nav-modelos" class="sidebar-link">
+                    <i class="fa-solid fa-boxes-stacked text-sm w-4 text-center"></i>
+                    <span>Catálogo de Produtos</span>
+                    <span id="badge-total-modelos" class="ml-auto text-[11px] px-2 py-0.5 rounded-full bg-white/10 text-slate-300 font-mono">0</span>
+                </a>
+            </div>
+
+        </div>
+
+        <!-- Card de Perfil no Rodapé da Sidebar (Igual ao da imagem 1) -->
+        <div class="pt-4 border-t border-slate-800/80">
+            <div class="flex items-center gap-3 p-2 rounded-2xl bg-white/5 hover:bg-white/10 transition-colors cursor-pointer" onclick="switchTab('dashboard')">
+                <img src="leao.jpg" class="w-9 h-9 rounded-xl object-cover">
+                <div class="overflow-hidden flex-1">
+                    <h5 class="text-xs font-bold text-white truncate">Loja Apple</h5>
+                    <p class="text-[11px] text-slate-400 truncate">Vendas & Estoque</p>
+                </div>
+                <i class="fa-solid fa-chevron-right text-xs text-slate-500"></i>
+            </div>
+        </div>
+    </aside>
+
+    <!-- ==============================================================================
+         2. CANVAS PRINCIPAL
+         ============================================================================== -->
+    <div class="flex-1 flex flex-col min-w-0 overflow-y-auto">
+        
+        <!-- Top Header Minimalista -->
+        <header id="top-app-header" class="h-20 px-6 lg:px-10 flex items-center justify-between border-b border-slate-200/80 bg-white/70 backdrop-blur-md sticky top-0 z-20">
+            <!-- Título da Página Atual -->
+            <div class="flex items-center gap-3">
+                <button onclick="toggleMobileMenu()" class="lg:hidden p-2 rounded-xl bg-slate-100 text-slate-700">
+                    <i class="fa-solid fa-bars"></i>
+                </button>
+                <div>
+                    <h1 id="top-page-title" class="text-xl lg:text-2xl font-black tracking-tight text-slate-900">Dashboard</h1>
+                    <p id="top-page-subtitle" class="text-xs text-slate-500 hidden sm:block">Controle inteligente de iPhones, MacBooks e Trade-In.</p>
+                </div>
+            </div>
+
+            <!-- Barra de Busca Global em Pílula + Ações Rápidas -->
+            <div class="flex items-center gap-3">
+                <!-- Search Pill -->
+                <div class="relative hidden sm:block">
+                    <i class="fa-solid fa-magnifying-glass absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-xs"></i>
+                    <input type="text" id="global-search" oninput="handleGlobalSearch(this.value)" placeholder="Buscar IMEI, Serial ou Cliente..." 
+                           class="w-64 lg:w-80 bg-slate-100 hover:bg-slate-200/60 focus:bg-white border border-transparent focus:border-slate-300 rounded-full pl-9 pr-10 py-2 text-xs font-medium text-slate-800 placeholder-slate-400 focus:outline-none transition-all">
+                    <span class="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] bg-slate-200 text-slate-500 font-mono px-1.5 py-0.5 rounded-md">⌘K</span>
+                </div>
+
+                <!-- Botão de Venda com Trade-In (PDV Ágil) -->
+                <button onclick="openModalVendaTradeIn()" class="btn-pill-primary">
+                    <i class="fa-solid fa-bolt text-yellow-400"></i>
+                    <span>Nova Venda / Trade-In</span>
+                </button>
+
+                <!-- Botão de Cadastrar Aparelho -->
+                <button onclick="openModalCadastroAparelho()" class="btn-pill-secondary">
+                    <i class="fa-solid fa-plus text-slate-500"></i>
+                    <span class="hidden sm:inline">Novo Aparelho</span>
+                </button>
+            </div>
+        </header>
+
+        <!-- Menu Mobile -->
+        <div id="mobile-menu" class="fixed inset-0 bg-black/70 z-50 hidden lg:hidden">
+            <div class="w-64 bg-[#121418] h-full p-5 flex flex-col justify-between text-white">
+                <div class="space-y-4">
+                    <div class="flex items-center justify-between pb-3 border-b border-slate-800">
+                        <div class="flex items-center gap-2">
+                            <img src="leao.jpg" class="w-8 h-8 rounded-xl object-cover">
+                            <span class="font-bold text-white">iLion Store</span>
+                        </div>
+                        <button onclick="toggleMobileMenu()" class="text-slate-400">
+                            <i class="fa-solid fa-xmark text-lg"></i>
+                        </button>
+                    </div>
+                    <div class="space-y-1 text-sm font-medium">
+                        <button onclick="switchTab('dashboard'); toggleMobileMenu();" class="w-full text-left py-2 px-3 rounded-xl hover:bg-white/10">Dashboard</button>
+                        <button onclick="switchTab('estoque'); toggleMobileMenu();" class="w-full text-left py-2 px-3 rounded-xl hover:bg-white/10">Estoque Serializado</button>
+                        <button onclick="switchTab('tradein'); toggleMobileMenu();" class="w-full text-left py-2 px-3 rounded-xl hover:bg-white/10">PDV & Trade-In</button>
+                        <button onclick="switchTab('crm'); toggleMobileMenu();" class="w-full text-left py-2 px-3 rounded-xl hover:bg-white/10">CRM & Clientes</button>
+                        <button onclick="switchTab('encomendas'); toggleMobileMenu();" class="w-full text-left py-2 px-3 rounded-xl hover:bg-white/10">Lista de Espera</button>
+                        <button onclick="switchTab('posvenda'); toggleMobileMenu();" class="w-full text-left py-2 px-3 rounded-xl hover:bg-white/10">Pós-Venda</button>
+                        <button onclick="switchTab('documentos'); toggleMobileMenu();" class="w-full text-left py-2 px-3 rounded-xl hover:bg-white/10">Recibos & Termos</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ÁREA CENTRAL DE CONTEÚDO ROLÁVEL -->
+        <main class="p-6 lg:p-10 space-y-8 flex-1">
+
+            <!-- ==============================================================================
+                 VIEW 1: DASHBOARD GERAL (ESTRUTURA IDENTICA À IMAGEM 1 DE REFERÊNCIA)
+                 ============================================================================== -->
+            <section id="view-dashboard" class="space-y-8 ios-view-enter">
+                
+                <!-- BARRA DE CONTROLE: FILTRO DE PERÍODO TEMPORAL (HOJE, ÚLTIMA SEMANA, ESTE MÊS, MÊS PASSADO, ANO, TODOS) -->
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-1">
+                    <div>
+                        <div class="flex items-center gap-2">
+                            <h2 class="text-base lg:text-lg font-black text-slate-900 tracking-tight">Performance Financeira & Vendas</h2>
+                            <span id="badge-periodo-ativo" class="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-slate-900 text-white">Este Mês</span>
+                        </div>
+                        <p class="text-xs text-slate-500">Métricas de faturamento, margem e trocas no intervalo selecionado.</p>
+                    </div>
+
+                    <!-- Pílulas de Seleção de Período Estilo iOS / Dribbble -->
+                    <div class="flex flex-wrap items-center gap-1.5 p-1 bg-white border border-slate-200/80 rounded-full shadow-sm select-none">
+                        <button onclick="setDashboardPeriodo('hoje')" id="tab-periodo-hoje" class="pill-tab inactive">Hoje</button>
+                        <button onclick="setDashboardPeriodo('semana')" id="tab-periodo-semana" class="pill-tab inactive">Última Semana</button>
+                        <button onclick="setDashboardPeriodo('mes_atual')" id="tab-periodo-mes_atual" class="pill-tab active">Este Mês</button>
+                        <button onclick="setDashboardPeriodo('mes_passado')" id="tab-periodo-mes_passado" class="pill-tab inactive">Mês Passado</button>
+                        <button onclick="setDashboardPeriodo('ano')" id="tab-periodo-ano" class="pill-tab inactive">Este Ano</button>
+                        <button onclick="setDashboardPeriodo('todos')" id="tab-periodo-todos" class="pill-tab inactive">Todo o Período</button>
+                    </div>
+                </div>
+
+                <!-- LINHA SUPERIOR: 4 CARDS DE KPIS (CARD 1 ESCURO + 3 CARDS BRANCOS COM MEDIDORES) -->
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+                    
+                    <!-- Card 1: Destaque Dark (Referência exata da Imagem 1) -->
+                    <div class="hero-metric-card p-6 flex flex-col justify-between relative overflow-hidden">
+                        <div class="flex items-center justify-between mb-4">
+                            <div class="w-10 h-10 rounded-2xl bg-yellow-400/20 text-yellow-400 flex items-center justify-center font-bold text-sm">
+                                <i class="fa-solid fa-boxes-stacked"></i>
+                            </div>
+                            <span class="text-xs font-bold text-slate-400 flex items-center gap-1">
+                                <i class="fa-solid fa-arrow-up-right text-yellow-400"></i> Ativo
+                            </span>
+                        </div>
+                        <div>
+                            <span class="text-xs font-medium text-slate-400">Total em Estoque</span>
+                            <div class="flex items-baseline gap-2 mt-1">
+                                <h3 id="dash-total-dispositivos" class="text-3xl font-black text-white font-mono">0</h3>
+                                <span class="text-xs text-slate-400 font-medium">aparelhos</span>
+                            </div>
+                        </div>
+                        <div class="mt-4 pt-3 border-t border-white/10 flex items-center justify-between">
+                            <span class="text-[11px] text-slate-400">Valor de Venda Projetado:</span>
+                            <span id="dash-valor-venda" class="text-xs font-bold text-emerald-400 font-mono">R$ 0,00</span>
+                        </div>
+                    </div>
+
+                    <!-- Card 2: Capital Empatado -->
+                    <div class="bento-card p-6 flex flex-col justify-between">
+                        <div class="flex items-center justify-between mb-4">
+                            <div class="w-10 h-10 rounded-2xl bg-slate-100 text-slate-800 flex items-center justify-center font-bold text-sm">
+                                <i class="fa-solid fa-vault"></i>
+                            </div>
+                            <span class="text-[11px] font-semibold text-slate-500 px-2 py-0.5 bg-slate-100 rounded-full">Investido</span>
+                        </div>
+                        <div>
+                            <span class="text-xs font-medium text-slate-500">Capital Empatado</span>
+                            <h3 id="dash-capital-empatado" class="text-2xl font-black text-slate-900 mt-1 font-mono">R$ 0,00</h3>
+                        </div>
+                        <div class="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-xs">
+                            <span class="text-slate-500">Lucro Bruto Projetado:</span>
+                            <span id="dash-lucro-projetado" class="font-bold text-emerald-600 font-mono">+R$ 0,00</span>
+                        </div>
+                    </div>
+
+                    <!-- Card 3: Trade-Ins Realizados -->
+                    <div class="bento-card p-6 flex flex-col justify-between">
+                        <div class="flex items-center justify-between mb-4">
+                            <div class="w-10 h-10 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center font-bold text-sm">
+                                <i class="fa-solid fa-repeat"></i>
+                            </div>
+                            <span id="dash-periodo-tradein-label" class="text-[11px] font-bold text-amber-700 px-2 py-0.5 bg-amber-100/70 rounded-full">Este Mês</span>
+                        </div>
+                        <div>
+                            <span class="text-xs font-medium text-slate-500">Trade-Ins Realizados</span>
+                            <div class="flex items-baseline gap-2 mt-1">
+                                <h3 id="dash-total-tradein" class="text-2xl font-black text-slate-900 font-mono">0</h3>
+                                <span class="text-xs text-slate-500">trocas aceitas</span>
+                            </div>
+                        </div>
+                        <div class="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-xs">
+                            <span class="text-slate-500">Créditos de Entrada:</span>
+                            <span id="dash-valor-tradein" class="font-bold text-amber-600 font-mono">R$ 0,00</span>
+                        </div>
+                    </div>
+
+                    <!-- Card 4: Faturamento Realizado -->
+                    <div class="bento-card p-6 flex flex-col justify-between">
+                        <div class="flex items-center justify-between mb-4">
+                            <div class="w-10 h-10 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center font-bold text-sm">
+                                <i class="fa-solid fa-wallet"></i>
+                            </div>
+                            <span id="dash-periodo-vendas-label" class="text-[11px] font-bold text-emerald-700 px-2 py-0.5 bg-emerald-100/70 rounded-full">Este Mês</span>
+                        </div>
+                        <div>
+                            <span class="text-xs font-medium text-slate-500">Faturamento Realizado</span>
+                            <div class="flex items-baseline gap-2 mt-1">
+                                <h3 id="dash-faturamento-total" class="text-2xl font-black text-slate-900 font-mono">R$ 0,00</h3>
+                                <span id="dash-qtd-vendas-periodo" class="text-xs text-slate-500 font-medium">0 vendas</span>
+                            </div>
+                        </div>
+                        <div class="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-xs">
+                            <span class="text-slate-500">Lucro Bruto Caixa:</span>
+                            <span id="dash-lucro-total" class="font-bold text-emerald-600 font-mono">+R$ 0,00</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- LINHA DO MEIO: GRÁFICO VISUAL + LISTA RÁPIDA DE APARELHOS (REFERÊNCIA IMAGEM 1) -->
+                <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                    
+                    <!-- Gráfico Visual de Volume de Estoque vs Vendas (7 colunas) -->
+                    <div class="lg:col-span-7 bento-card p-6 flex flex-col justify-between">
+                        <div>
+                            <div class="flex flex-wrap items-center justify-between gap-3 mb-6">
+                                <div>
+                                    <h3 class="font-black text-base text-slate-900">Volume de Estoque & Demanda Apple</h3>
+                                    <p class="text-xs text-slate-500">Projeção de giro e distribuição por modelo</p>
+                                </div>
+                                <div class="flex items-center gap-1.5 bg-slate-100 p-1 rounded-full text-xs font-semibold">
+                                    <button class="px-3 py-1 rounded-full bg-white text-slate-900 shadow-sm">Todos</button>
+                                    <button class="px-3 py-1 rounded-full text-slate-500 hover:text-slate-900">iPhones</button>
+                                    <button class="px-3 py-1 rounded-full text-slate-500 hover:text-slate-900">MacBooks</button>
+                                </div>
+                            </div>
+
+                            <!-- Gráfico de Linha Ilustrativo / SVG Fluido Moderno com Tooltip Pill -->
+                            <div class="relative w-full h-48 flex items-end justify-between px-2 pt-8">
+                                <!-- Tooltip flutuante estilo Imagem 1 -->
+                                <div class="absolute top-2 left-1/2 -translate-x-1/2 bg-[#121316] text-white px-3 py-1 rounded-xl text-xs font-bold font-mono shadow-md flex items-center gap-1.5">
+                                    <span class="w-2 h-2 rounded-full bg-yellow-400"></span>
+                                    <span>Estoque: <strong id="chart-tooltip-val">R$ 36.340</strong></span>
+                                </div>
+
+                                <!-- Curvas SVG Modernas -->
+                                <svg class="w-full h-full overflow-visible" viewBox="0 0 500 120" preserveAspectRatio="none">
+                                    <defs>
+                                        <linearGradient id="chartGradient" x1="0" y1="0" x2="0" y2="1">
+                                            <stop offset="0%" stop-color="#facc15" stop-opacity="0.35"/>
+                                            <stop offset="100%" stop-color="#facc15" stop-opacity="0.0"/>
+                                        </linearGradient>
+                                    </defs>
+                                    <path d="M 0 90 Q 70 20, 150 70 T 300 40 T 420 20 T 500 60 L 500 120 L 0 120 Z" fill="url(#chartGradient)"/>
+                                    <path d="M 0 90 Q 70 20, 150 70 T 300 40 T 420 20 T 500 60" fill="none" stroke="#facc15" stroke-width="3.5" stroke-linecap="round"/>
+                                </svg>
+                            </div>
+
+                            <!-- Legenda de Meses / Categorias -->
+                            <div class="flex justify-between text-[11px] font-semibold text-slate-400 pt-3 border-t border-slate-100">
+                                <span>iPhone 13</span>
+                                <span>iPhone 14 Pro</span>
+                                <span>iPhone 15</span>
+                                <span>iPhone 15 Pro Max</span>
+                                <span>MacBook M2/M3</span>
+                                <span>Apple Watch</span>
+                            </div>
+                        </div>
+
+                        <div class="mt-4 pt-3 flex items-center justify-between text-xs text-slate-500">
+                            <span>Previsão de giro médio: <strong>14 dias por item</strong></span>
+                            <button onclick="switchTab('estoque')" class="font-bold text-slate-900 hover:text-blue-600 flex items-center gap-1">
+                                Ver Estoque Completo <i class="fa-solid fa-arrow-right text-[10px]"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Lista Rápida de Aparelhos Recentes (5 colunas) -->
+                    <div class="lg:col-span-5 bento-card p-6 flex flex-col justify-between">
+                        <div>
+                            <div class="flex items-center justify-between mb-4">
+                                <div>
+                                    <h3 class="font-black text-base text-slate-900">Estoque Ativo</h3>
+                                    <p class="text-xs text-slate-500">Últimos aparelhos cadastrados</p>
+                                </div>
+                                <button onclick="switchTab('estoque')" class="text-xs font-bold text-slate-900 hover:text-blue-600">Ver todos</button>
+                            </div>
+
+                            <!-- Mini Lista Dinâmica -->
+                            <div id="dash-quick-stock-list" class="space-y-3">
+                                <!-- Preenchido dinamicamente via JS -->
+                            </div>
+                        </div>
+
+                        <div class="pt-3 border-t border-slate-100 flex items-center justify-between">
+                            <span class="text-xs text-slate-500">Todos com checklist 100% testado</span>
+                            <button onclick="openModalCadastroAparelho()" class="text-xs font-bold text-blue-600 hover:underline">+ Novo Item</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- LINHA DE BAIXO: 3 BENTO CARDS (VENDAS, RADAR DE ENCOMENDAS E PÓS-VENDA) -->
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    
+                    <!-- Card 1: Últimas Vendas / Transações -->
+                    <div class="bento-card p-6 flex flex-col justify-between">
+                        <div>
+                            <div class="flex items-center justify-between mb-4">
+                                <div class="flex items-center gap-2">
+                                    <span class="w-8 h-8 rounded-xl bg-slate-100 flex items-center justify-center text-slate-700 text-xs">
+                                        <i class="fa-solid fa-receipt"></i>
+                                    </span>
+                                    <h4 class="font-black text-sm text-slate-900">Vendas Recentes</h4>
+                                </div>
+                                <span id="dash-mini-vendas-periodo-tag" class="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">Este Mês</span>
+                            </div>
+
+                            <div id="dash-mini-vendas" class="space-y-2.5 text-xs">
+                                <!-- Preenchido via JS -->
+                            </div>
+                        </div>
+                        <button onclick="switchTab('documentos')" class="mt-4 w-full py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl text-xs font-bold transition-all">
+                            Ver Todas as Vendas
+                        </button>
+                    </div>
+
+                    <!-- Card 2: Radar de Encomendas (Smart Matching) -->
+                    <div class="bento-card p-6 flex flex-col justify-between border-2 border-emerald-500/20">
+                        <div>
+                            <div class="flex items-center justify-between mb-4">
+                                <div class="flex items-center gap-2">
+                                    <span class="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center text-xs">
+                                        <i class="fa-solid fa-crosshairs"></i>
+                                    </span>
+                                    <h4 class="font-black text-sm text-slate-900">Matches da Lista de Espera</h4>
+                                </div>
+                                <span class="text-[10px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full">Ao Vivo</span>
+                            </div>
+
+                            <div id="dash-list-matches" class="space-y-2.5 text-xs">
+                                <!-- Preenchido via JS -->
+                            </div>
+                        </div>
+                        <button onclick="switchTab('encomendas')" class="mt-4 w-full py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-xl text-xs font-bold transition-all">
+                            Gerenciar Lista de Espera
+                        </button>
+                    </div>
+
+                    <!-- Card 3: Pós-Venda & Ciclo de Troca 10-12 Meses -->
+                    <div class="bento-card p-6 flex flex-col justify-between border-2 border-purple-500/20">
+                        <div>
+                            <div class="flex items-center justify-between mb-4">
+                                <div class="flex items-center gap-2">
+                                    <span class="w-8 h-8 rounded-xl bg-purple-100 text-purple-700 flex items-center justify-center text-xs">
+                                        <i class="fa-solid fa-arrows-spin"></i>
+                                    </span>
+                                    <h4 class="font-black text-sm text-slate-900">Radar de Upgrade Anual</h4>
+                                </div>
+                                <span class="text-[10px] font-bold text-purple-700 bg-purple-100 px-2 py-0.5 rounded-full">10-12 Meses</span>
+                            </div>
+
+                            <div id="dash-list-posvenda" class="space-y-2.5 text-xs">
+                                <!-- Preenchido via JS -->
+                            </div>
+                        </div>
+                        <button onclick="switchTab('posvenda')" class="mt-4 w-full py-2 bg-purple-50 hover:bg-purple-100 text-purple-700 rounded-xl text-xs font-bold transition-all">
+                            Acessar Radar de Pós-Venda
+                        </button>
+                    </div>
+                </div>
+
+            </section>
+
+            <!-- ==============================================================================
+                 VIEW 2: ESTOQUE SERIALIZADO (GRID MODERNO COM MEDIDORES CIRCULARES)
+                 ============================================================================== -->
+            <section id="view-estoque" class="space-y-6 hidden">
+                
+                <!-- Barra de Filtros em Pílula (Estilo Dribbble) -->
+                <div class="flex flex-wrap items-center justify-between gap-4">
+                    <!-- Categorias Apple em Pílula -->
+                    <div class="flex items-center gap-2 overflow-x-auto pb-1" id="filtro-tipo-dispositivo">
+                        <button onclick="filtrarEstoquePorTipo('Todos')" class="pill-tab active">Todos</button>
+                        <button onclick="filtrarEstoquePorTipo('iPhone')" class="pill-tab inactive">iPhone</button>
+                        <button onclick="filtrarEstoquePorTipo('MacBook')" class="pill-tab inactive">MacBook</button>
+                        <button onclick="filtrarEstoquePorTipo('iPad')" class="pill-tab inactive">iPad</button>
+                        <button onclick="filtrarEstoquePorTipo('Apple Watch')" class="pill-tab inactive">Apple Watch</button>
+                    </div>
+
+                    <!-- Filtro de Status & Busca Local -->
+                    <div class="flex items-center gap-2 w-full sm:w-auto">
+                        <select id="filtro-status-dispositivo" onchange="filtrarEstoque()" class="bg-white border border-slate-200 rounded-full px-4 py-2 text-xs font-semibold text-slate-700 focus:outline-none">
+                            <option value="Todos">Todos os Status</option>
+                            <option value="Em Estoque" selected>Em Estoque</option>
+                            <option value="Reservado">Reservado</option>
+                            <option value="Vendido">Vendido</option>
+                            <option value="Em Manutenção/Revisão">Em Revisão</option>
+                        </select>
+
+                        <div class="relative">
+                            <i class="fa-solid fa-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs"></i>
+                            <input type="text" id="filtro-termo-estoque" oninput="filtrarEstoque()" placeholder="Filtrar nesta lista..." 
+                                   class="bg-white border border-slate-200 rounded-full pl-8 pr-3 py-2 text-xs font-medium text-slate-700 focus:outline-none w-48 sm:w-60">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Grid de Aparelhos Serializados -->
+                <div id="grid-dispositivos" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                    <!-- Preenchido dinamicamente via JS com o design refinado -->
+                </div>
+            </section>
+
+            <!-- ==============================================================================
+                 VIEW 3: PDV & TRADE-IN ÁGIL
+                 ============================================================================== -->
+            <section id="view-tradein" class="space-y-6 hidden">
+                <div class="bento-card p-6 lg:p-8">
+                    <div class="flex items-center justify-between pb-6 border-b border-slate-100 mb-6">
+                        <div>
+                            <h2 class="text-xl font-black text-slate-900 flex items-center gap-2">
+                                <i class="fa-solid fa-bolt text-yellow-500"></i>
+                                <span>Ponto de Venda Ágil com Trade-In</span>
+                            </h2>
+                            <p class="text-xs text-slate-500">Abata o valor de aparelhos usados na compra de um novo e emita recibo com 1 clique.</p>
+                        </div>
+                        <button onclick="openModalVendaTradeIn()" class="btn-pill-primary">
+                            <i class="fa-solid fa-cash-register"></i>
+                            <span>Abrir Caixa / Checkout</span>
+                        </button>
+                    </div>
+
+                    <!-- Tabela Limpa de Trade-Ins Realizados -->
+                    <div>
+                        <h4 class="font-bold text-sm text-slate-900 mb-4">Aparelhos Recebidos em Base de Troca (Trade-In)</h4>
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-left text-xs text-slate-600">
+                                <thead class="bg-slate-50 text-slate-400 uppercase text-[10px] font-bold tracking-wider">
+                                    <tr>
+                                        <th class="px-4 py-3 rounded-l-xl">Data</th>
+                                        <th class="px-4 py-3">Cliente Cedente</th>
+                                        <th class="px-4 py-3">Aparelho Entregue</th>
+                                        <th class="px-4 py-3">IMEI / Serial</th>
+                                        <th class="px-4 py-3">Bateria / Grau</th>
+                                        <th class="px-4 py-3">Crédito Concedido</th>
+                                        <th class="px-4 py-3 rounded-r-xl text-right">Ações</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="tabela-tradeins-corpo" class="divide-y divide-slate-100">
+                                    <!-- Preenchido via JS -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ==============================================================================
+                 VIEW 4: CRM & CLIENTES
+                 ============================================================================== -->
+            <section id="view-crm" class="space-y-6 hidden">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-slate-200/80">
+                    <div>
+                        <h2 class="text-xl font-black text-slate-900 tracking-tight" id="crm-page-header-title">CRM & Gestão de Clientes</h2>
+                        <p class="text-xs text-slate-500" id="crm-page-header-desc">Pipeline de vendas, negociações ativas e base de contatos.</p>
+                    </div>
+
+                    <!-- Pílulas de Sub-aba: Funil Kanban vs Base de Clientes -->
+                    <div class="flex flex-wrap items-center gap-2">
+                        <div class="inline-flex items-center p-1 bg-white border border-slate-200/80 rounded-full shadow-sm select-none">
+                            <button onclick="alternarAbaCRM('kanban')" id="tab-crm-kanban" class="pill-tab active">
+                                <i class="fa-solid fa-table-columns mr-1 text-xs"></i> Funil de Vendas
+                            </button>
+                            <button onclick="alternarAbaCRM('clientes')" id="tab-crm-clientes" class="pill-tab inactive">
+                                <i class="fa-solid fa-users mr-1 text-xs"></i> Clientes Cadastrados
+                                <span id="badge-total-clientes" class="ml-1 px-1.5 py-0.2 bg-slate-200 text-slate-800 text-[10px] rounded-full font-bold">0</span>
+                            </button>
+                        </div>
+
+                        <button onclick="openModalNovoCliente()" class="btn-pill-secondary">
+                            <i class="fa-solid fa-user-plus"></i> Novo Cliente
+                        </button>
+                        <button onclick="openModalNovoLead()" class="btn-pill-primary">
+                            <i class="fa-solid fa-plus"></i> Nova Negociação
+                        </button>
+                    </div>
+                </div>
+
+                <!-- SEÇÃO 1: KANBAN BOARD DE NEGOCIAÇÕES -->
+                <div id="crm-secao-kanban" class="space-y-4">
+                    <div class="grid grid-cols-1 md:grid-cols-5 gap-4 overflow-x-auto pb-4">
+                        
+                        <!-- 1. Novo Contato -->
+                        <div class="bento-card p-4 flex flex-col min-w-[210px] bg-slate-50/60">
+                            <div class="flex items-center justify-between pb-3 mb-3 border-b border-slate-200">
+                                <span class="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                                    <span class="w-2 h-2 rounded-full bg-blue-500"></span> Novo Contato
+                                </span>
+                                <span id="count-kanban-novo" class="text-[10px] bg-slate-200 font-bold px-2 py-0.5 rounded-full">0</span>
+                            </div>
+                            <div id="coluna-kanban-novo" class="space-y-3 flex-1 min-h-[350px]"></div>
+                        </div>
+
+                        <!-- 2. Em Negociação -->
+                        <div class="bento-card p-4 flex flex-col min-w-[210px] bg-slate-50/60">
+                            <div class="flex items-center justify-between pb-3 mb-3 border-b border-slate-200">
+                                <span class="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                                    <span class="w-2 h-2 rounded-full bg-amber-500"></span> Negociação
+                                </span>
+                                <span id="count-kanban-negociacao" class="text-[10px] bg-slate-200 font-bold px-2 py-0.5 rounded-full">0</span>
+                            </div>
+                            <div id="coluna-kanban-negociacao" class="space-y-3 flex-1 min-h-[350px]"></div>
+                        </div>
+
+                        <!-- 3. Aguardando Trade-In -->
+                        <div class="bento-card p-4 flex flex-col min-w-[210px] bg-slate-50/60">
+                            <div class="flex items-center justify-between pb-3 mb-3 border-b border-slate-200">
+                                <span class="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                                    <span class="w-2 h-2 rounded-full bg-purple-500"></span> Aguardando Troca
+                                </span>
+                                <span id="count-kanban-tradein" class="text-[10px] bg-slate-200 font-bold px-2 py-0.5 rounded-full">0</span>
+                            </div>
+                            <div id="coluna-kanban-tradein" class="space-y-3 flex-1 min-h-[350px]"></div>
+                        </div>
+
+                        <!-- 4. Fechado -->
+                        <div class="bento-card p-4 flex flex-col min-w-[210px] bg-slate-50/60">
+                            <div class="flex items-center justify-between pb-3 mb-3 border-b border-slate-200">
+                                <span class="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                                    <span class="w-2 h-2 rounded-full bg-emerald-500"></span> Fechado
+                                </span>
+                                <span id="count-kanban-fechado" class="text-[10px] bg-slate-200 font-bold px-2 py-0.5 rounded-full">0</span>
+                            </div>
+                            <div id="coluna-kanban-fechado" class="space-y-3 flex-1 min-h-[350px]"></div>
+                        </div>
+
+                        <!-- 5. Perdido -->
+                        <div class="bento-card p-4 flex flex-col min-w-[210px] bg-slate-50/60">
+                            <div class="flex items-center justify-between pb-3 mb-3 border-b border-slate-200">
+                                <span class="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                                    <span class="w-2 h-2 rounded-full bg-rose-500"></span> Perdido
+                                </span>
+                                <span id="count-kanban-perdido" class="text-[10px] bg-slate-200 font-bold px-2 py-0.5 rounded-full">0</span>
+                            </div>
+                            <div id="coluna-kanban-perdido" class="space-y-3 flex-1 min-h-[350px]"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- SEÇÃO 2: LISTAGEM E EDIÇÃO DE CLIENTES CADASTRADOS -->
+                <div id="crm-secao-clientes" class="space-y-4 hidden ios-view-enter">
+                    <!-- Barra de busca rápida de clientes -->
+                    <div class="flex flex-wrap items-center justify-between gap-3 p-4 bg-white rounded-3xl border border-slate-200/80 shadow-sm">
+                        <div class="relative flex-1 min-w-[240px]">
+                            <i class="fa-solid fa-magnifying-glass absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-xs"></i>
+                            <input type="text" id="filtro-busca-clientes" oninput="filtrarListaClientes(this.value)" placeholder="Buscar cliente por nome, telefone ou CPF..."
+                                   class="w-full bg-slate-50 focus:bg-white border border-slate-200 focus:border-slate-400 rounded-full pl-9 pr-4 py-2 text-xs font-medium text-slate-800 focus:outline-none transition-all">
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <span id="label-contagem-clientes" class="text-xs font-bold text-slate-500 font-mono">0 clientes cadastrados</span>
+                            <button onclick="openModalNovoCliente()" class="btn-pill-primary">
+                                <i class="fa-solid fa-plus text-yellow-400"></i> Cadastrar Cliente
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Tabela de Clientes -->
+                    <div class="bento-card overflow-hidden">
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-left text-xs">
+                                <thead class="bg-slate-50/80 text-slate-500 font-bold border-b border-slate-200">
+                                    <tr>
+                                        <th class="p-4">Cliente</th>
+                                        <th class="p-4">WhatsApp</th>
+                                        <th class="p-4">Documento / CPF</th>
+                                        <th class="p-4">Aparelho Atual</th>
+                                        <th class="p-4">Data Cadastro</th>
+                                        <th class="p-4 text-right">Ações</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="tabela-clientes-corpo" class="divide-y divide-slate-100">
+                                    <!-- Preenchido via JS -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ==============================================================================
+                 VIEW 5: LISTA DE ESPERA / ENCOMENDAS
+                 ============================================================================== -->
+            <section id="view-encomendas" class="space-y-6 hidden">
+                <div class="bento-card p-6 lg:p-8">
+                    <div class="flex items-center justify-between pb-6 border-b border-slate-100 mb-6">
+                        <div>
+                            <h2 class="text-xl font-black text-slate-900">Lista de Espera & Encomendas</h2>
+                            <p class="text-xs text-slate-500">O sistema alerta instantaneamente quando um aparelho compatível entra no estoque.</p>
+                        </div>
+                        <button onclick="openModalNovaEncomenda()" class="btn-pill-primary">
+                            <i class="fa-solid fa-plus"></i>
+                            <span>Cadastrar Novo Desejo</span>
+                        </button>
+                    </div>
+
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left text-xs text-slate-600">
+                            <thead class="bg-slate-50 text-slate-400 uppercase text-[10px] font-bold tracking-wider">
+                                <tr>
+                                    <th class="px-4 py-3 rounded-l-xl">Cliente</th>
+                                    <th class="px-4 py-3">Modelo Desejado</th>
+                                    <th class="px-4 py-3">Capacidade / Cor</th>
+                                    <th class="px-4 py-3">Orçamento Teto</th>
+                                    <th class="px-4 py-3">Status do Match</th>
+                                    <th class="px-4 py-3 rounded-r-xl text-right">Ação Direta</th>
+                                </tr>
+                            </thead>
+                            <tbody id="tabela-encomendas-corpo" class="divide-y divide-slate-100">
+                                <!-- Preenchido via JS -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ==============================================================================
+                 VIEW 6: PÓS-VENDA, GARANTIAS & CICLO DE RECOMPRA
+                 ============================================================================== -->
+            <section id="view-posvenda" class="space-y-6 hidden">
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <!-- Painel 1: Garantia -->
+                    <div class="bento-card p-6 space-y-4">
+                        <div class="flex items-center gap-3 pb-3 border-b border-slate-100">
+                            <div class="w-10 h-10 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center font-bold text-sm">
+                                <i class="fa-solid fa-shield-check"></i>
+                            </div>
+                            <div>
+                                <h3 class="font-black text-sm text-slate-900">Garantias Vencendo (&lt; 15 dias)</h3>
+                                <p class="text-xs text-slate-500">Faça contato proativo aos 80 dias para pesquisa de satisfação</p>
+                            </div>
+                        </div>
+                        <div id="lista-garantias-posvenda" class="space-y-3">
+                            <!-- Preenchido via JS -->
+                        </div>
+                    </div>
+
+                    <!-- Painel 2: Ciclo de Upgrade 10-12 Meses -->
+                    <div class="bento-card p-6 space-y-4">
+                        <div class="flex items-center gap-3 pb-3 border-b border-slate-100">
+                            <div class="w-10 h-10 rounded-2xl bg-purple-50 text-purple-600 flex items-center justify-center font-bold text-sm">
+                                <i class="fa-solid fa-arrows-spin"></i>
+                            </div>
+                            <div>
+                                <h3 class="font-black text-sm text-slate-900">Radar de Troca Anual (10 a 12 meses)</h3>
+                                <p class="text-xs text-slate-500">Momento de ouro para oferecer a recompra do iPhone atual</p>
+                            </div>
+                        </div>
+                        <div id="lista-upgrades-posvenda" class="space-y-3">
+                            <!-- Preenchido via JS -->
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ==============================================================================
+                 VIEW 7: RECIBOS & DOCUMENTOS
+                 ============================================================================== -->
+            <section id="view-documentos" class="space-y-6 hidden">
+                <div class="bento-card p-6 lg:p-8">
+                    <div class="flex items-center justify-between pb-6 border-b border-slate-100 mb-6">
+                        <div>
+                            <h2 class="text-xl font-black text-slate-900">Histórico de Vendas & Documentos</h2>
+                            <p class="text-xs text-slate-500">Reimprima recibos, termos de garantia ou envie mensagem pronta no WhatsApp.</p>
+                        </div>
+                    </div>
+
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left text-xs text-slate-600">
+                            <thead class="bg-slate-50 text-slate-400 uppercase text-[10px] font-bold tracking-wider">
+                                <tr>
+                                    <th class="px-4 py-3 rounded-l-xl">Nº Pedido</th>
+                                    <th class="px-4 py-3">Data</th>
+                                    <th class="px-4 py-3">Cliente</th>
+                                    <th class="px-4 py-3">Aparelho Vendido</th>
+                                    <th class="px-4 py-3">Total Pago</th>
+                                    <th class="px-4 py-3">Garantia Até</th>
+                                    <th class="px-4 py-3 rounded-r-xl text-right">Ação</th>
+                                </tr>
+                            </thead>
+                            <tbody id="tabela-vendas-corpo" class="divide-y divide-slate-100">
+                                <!-- Preenchido via JS -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ==============================================================================
+                 VIEW 8: CATÁLOGO DE PRODUTOS & MODELOS
+                 ============================================================================== -->
+            <section id="view-modelos" class="space-y-6 hidden">
+                <div class="bento-card p-6 lg:p-8">
+                    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-6 border-b border-slate-100 mb-6">
+                        <div>
+                            <h2 class="text-xl font-black text-slate-900 tracking-tight">Catálogo de Produtos & Modelos</h2>
+                            <p class="text-xs text-slate-500">Cadastre e padronize os modelos de produtos para seleção automática no Estoque, Desejos e Trade-In.</p>
+                        </div>
+                        <button onclick="openModalNovoModelo()" class="btn-pill-primary">
+                            <i class="fa-solid fa-plus"></i>
+                            <span>Cadastrar Novo Modelo</span>
+                        </button>
+                    </div>
+
+                    <!-- Filtros de Categoria + Barra de Busca -->
+                    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+                        <div class="flex items-center gap-1.5 overflow-x-auto pb-1" id="filtro-categoria-modelos">
+                            <button onclick="filtrarCategoriaModelos('Todos')" class="pill-tab active" data-cat="Todos">Todos</button>
+                            <button onclick="filtrarCategoriaModelos('iPhone')" class="pill-tab inactive" data-cat="iPhone">iPhones</button>
+                            <button onclick="filtrarCategoriaModelos('MacBook')" class="pill-tab inactive" data-cat="MacBook">MacBooks</button>
+                            <button onclick="filtrarCategoriaModelos('iPad')" class="pill-tab inactive" data-cat="iPad">iPads</button>
+                            <button onclick="filtrarCategoriaModelos('Apple Watch')" class="pill-tab inactive" data-cat="Apple Watch">Apple Watch</button>
+                            <button onclick="filtrarCategoriaModelos('Acessório')" class="pill-tab inactive" data-cat="Acessório">Acessórios</button>
+                        </div>
+                        <div class="relative w-full sm:w-72">
+                            <i class="fa-solid fa-magnifying-glass absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-xs"></i>
+                            <input type="text" id="filtro-busca-modelos" oninput="handleBuscaModelos(this.value)" placeholder="Buscar modelo cadastrado..." 
+                                   class="w-full bg-slate-50 border border-slate-200 rounded-full pl-9 pr-4 py-2 text-xs font-medium text-slate-800 placeholder-slate-400 focus:outline-none focus:bg-white focus:border-slate-300 transition-all">
+                        </div>
+                    </div>
+
+                    <!-- Tabela de Modelos -->
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left text-xs text-slate-600">
+                            <thead class="bg-slate-50 text-slate-400 uppercase text-[10px] font-bold tracking-wider">
+                                <tr>
+                                    <th class="px-4 py-3 rounded-l-xl">Categoria</th>
+                                    <th class="px-4 py-3">Nome Oficial do Modelo</th>
+                                    <th class="px-4 py-3 text-center">Unidades no Estoque</th>
+                                    <th class="px-4 py-3 text-center">Desejos na Fila</th>
+                                    <th class="px-4 py-3 rounded-r-xl text-right">Ações</th>
+                                </tr>
+                            </thead>
+                            <tbody id="tabela-modelos-corpo" class="divide-y divide-slate-100">
+                                <!-- Preenchido via JS -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+        </main>
+    </div>
+
+    <!-- ==============================================================================
+         MODAIS COM DESIGN REFINADO EM PÍLULAS E CANTOS ARREDONDADOS
+         ============================================================================== -->
+
+    <!-- MODAL: CADASTRO DE APARELHO -->
+    <div id="modal-cadastro-aparelho" class="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 hidden overflow-y-auto ios-modal-backdrop">
+        <div class="bg-white rounded-3xl w-full max-w-xl max-h-[90vh] overflow-y-auto shadow-2xl p-6 lg:p-8 space-y-5 ios-modal-sheet">
+            <div class="flex items-center justify-between pb-4 border-b border-slate-100">
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-2xl bg-slate-100 text-slate-800 flex items-center justify-center font-bold">
+                        <i class="fa-solid fa-mobile-screen"></i>
+                    </div>
+                    <div>
+                        <h3 id="modal-disp-titulo" class="font-black text-base text-slate-900">Novo Aparelho no Estoque</h3>
+                        <p id="modal-disp-subtitulo" class="text-xs text-slate-500">Cadastre item individual com IMEI e checklist.</p>
+                    </div>
+                </div>
+                <button onclick="closeModal('modal-cadastro-aparelho')" class="text-slate-400 hover:text-slate-600 p-1">
+                    <i class="fa-solid fa-xmark text-lg"></i>
+                </button>
+            </div>
+
+            <form id="form-cadastro-aparelho" onsubmit="salvarNovoDispositivo(event)" class="space-y-4">
+                <input type="hidden" id="disp-edit-id" value="">
+                
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div>
+                        <label class="block text-xs font-bold text-slate-700 mb-1">Tipo</label>
+                        <select id="cad-tipo" onchange="atualizarModelosSugeridos()" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold text-slate-800 focus:outline-none">
+                            <option value="iPhone">iPhone</option>
+                            <option value="MacBook">MacBook</option>
+                            <option value="iPad">iPad</option>
+                            <option value="Apple Watch">Apple Watch</option>
+                            <option value="Acessório">Acessório</option>
+                        </select>
+                    </div>
+                    <div class="sm:col-span-2">
+                        <div class="flex items-center justify-between mb-1">
+                            <label class="block text-xs font-bold text-slate-700">Modelo Oficial</label>
+                            <button type="button" onclick="openModalNovoModelo()" class="text-[11px] font-bold text-amber-600 hover:text-amber-700">
+                                <i class="fa-solid fa-plus-circle mr-0.5"></i> Cadastrar Modelo
+                            </button>
+                        </div>
+                        <select id="cad-modelo" required onchange="aoSelecionarModeloCadastro()" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 focus:outline-none">
+                            <option value="">-- Selecione o Modelo do Catálogo --</option>
+                        </select>
+                        <datalist id="lista-modelos-sugeridos"></datalist>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                    <div>
+                        <label class="block text-xs font-bold text-slate-700 mb-1">Capacidade</label>
+                        <select id="cad-capacidade" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold text-slate-800 focus:outline-none">
+                            <option value="64GB">64GB</option>
+                            <option value="128GB" selected>128GB</option>
+                            <option value="256GB">256GB</option>
+                            <option value="512GB">512GB</option>
+                            <option value="1TB">1TB</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-700 mb-1">Cor</label>
+                        <input type="text" id="cad-cor" required placeholder="Ex: Titânio Natural" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-medium text-slate-800 focus:outline-none">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-700 mb-1">Grau Estético</label>
+                        <select id="cad-grau" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold text-slate-800 focus:outline-none">
+                            <option value="Novo Lacrado">Novo Lacrado</option>
+                            <option value="Grau A+ (Impecável)" selected>Grau A+ (Impecável)</option>
+                            <option value="Grau A (Excelente)">Grau A (Excelente)</option>
+                            <option value="Grau B (Leves marcas)">Grau B (Leves marcas)</option>
+                            <option value="Grau C (Sinais visíveis)">Grau C (Sinais visíveis)</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-700 mb-1">Status</label>
+                        <select id="cad-status" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold text-slate-800 focus:outline-none">
+                            <option value="Em Estoque" selected>Em Estoque</option>
+                            <option value="Reservado">Reservado</option>
+                            <option value="Vendido">Vendido</option>
+                            <option value="Em Manutenção/Revisão">Em Manutenção/Revisão</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-xs font-bold text-slate-700 mb-1">Identificador</label>
+                        <select id="cad-identificador-tipo" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold text-slate-800 focus:outline-none">
+                            <option value="IMEI">IMEI (iPhone/iPad)</option>
+                            <option value="Serial">Número de Série (Serial)</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-700 mb-1">Código do IMEI ou Serial</label>
+                        <input type="text" id="cad-identificador-valor" required placeholder="Ex: 352984110293841" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-mono text-slate-800 focus:outline-none">
+                    </div>
+                </div>
+
+                <!-- Bateria com Slider Dinâmico -->
+                <div class="p-3.5 bg-slate-50 rounded-2xl border border-slate-200 space-y-2">
+                    <div class="flex items-center justify-between text-xs font-bold">
+                        <span class="text-slate-700">Saúde da Bateria:</span>
+                        <span id="label-saude-bateria" class="px-2 py-0.5 rounded-full text-emerald-700 bg-emerald-100">100% (Excelente)</span>
+                    </div>
+                    <div class="flex items-center gap-3">
+                        <input type="range" id="cad-bateria" min="50" max="100" value="100" oninput="atualizarIndicadorBateria(this.value)" class="flex-1 accent-slate-900">
+                        <input type="number" id="cad-bateria-num" min="50" max="100" value="100" oninput="atualizarIndicadorBateria(this.value)" class="w-16 bg-white border border-slate-200 rounded-lg px-2 py-1 text-xs text-center font-bold">
+                    </div>
+                    <div id="campo-ciclos-mac" class="pt-2 hidden">
+                        <label class="block text-[11px] font-bold text-slate-600 mb-1">Ciclos de Bateria (MacBook)</label>
+                        <input type="number" id="cad-ciclos" placeholder="Ex: 42 ciclos" class="w-full bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-xs">
+                    </div>
+                </div>
+
+                <!-- Checklist Técnico Sintético -->
+                <div class="p-3.5 bg-slate-50 rounded-2xl border border-slate-200 space-y-2">
+                    <div class="flex items-center justify-between text-xs font-bold text-slate-700">
+                        <span>Checklist Técnico de Entrada</span>
+                        <button type="button" onclick="marcarTodosChecklist(true)" class="text-[11px] text-blue-600 font-semibold hover:underline">Marcar Todos OK</button>
+                    </div>
+                    <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+                        <label class="flex items-center gap-2 p-2 bg-white rounded-xl border border-slate-200 cursor-pointer">
+                            <input type="checkbox" id="chk-facetouch" checked class="accent-slate-900 rounded">
+                            <span class="text-slate-700">Face / Touch</span>
+                        </label>
+                        <label class="flex items-center gap-2 p-2 bg-white rounded-xl border border-slate-200 cursor-pointer">
+                            <input type="checkbox" id="chk-tela" checked class="accent-slate-900 rounded">
+                            <span class="text-slate-700">Tela Original</span>
+                        </label>
+                        <label class="flex items-center gap-2 p-2 bg-white rounded-xl border border-slate-200 cursor-pointer">
+                            <input type="checkbox" id="chk-bateria" checked class="accent-slate-900 rounded">
+                            <span class="text-slate-700">Bateria OK</span>
+                        </label>
+                        <label class="flex items-center gap-2 p-2 bg-white rounded-xl border border-slate-200 cursor-pointer">
+                            <input type="checkbox" id="chk-truetone" checked class="accent-slate-900 rounded">
+                            <span class="text-slate-700">True Tone</span>
+                        </label>
+                    </div>
+                </div>
+
+                <!-- Custos e Preço Sugerido -->
+                <div class="grid grid-cols-2 sm:grid-cols-3 gap-3 p-3.5 bg-slate-50 rounded-2xl border border-slate-200">
+                    <div>
+                        <label class="block text-[11px] font-bold text-slate-600 mb-1">Custo Compra (R$)</label>
+                        <input type="number" step="0.01" id="cad-custo-compra" value="4000.00" oninput="calcularMargensCadastro()" class="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-mono font-bold text-slate-800">
+                    </div>
+                    <div>
+                        <label class="block text-[11px] font-bold text-slate-600 mb-1">Extras (R$)</label>
+                        <input type="number" step="0.01" id="cad-custos-extras" value="100.00" oninput="calcularMargensCadastro()" class="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-mono text-slate-800">
+                    </div>
+                    <div>
+                        <label class="block text-[11px] font-bold text-emerald-700 mb-1">Preço Sugerido (R$)</label>
+                        <input type="number" step="0.01" id="cad-preco-sugerido" value="5490.00" oninput="calcularMargensCadastro()" class="w-full bg-white border border-emerald-300 rounded-lg px-2.5 py-1.5 text-xs font-mono font-black text-emerald-600">
+                    </div>
+                    <div class="col-span-full flex items-center justify-between text-xs pt-1 text-slate-600">
+                        <span>Custo Base: <strong id="lbl-custo-base" class="font-mono text-slate-900">R$ 4.100,00</strong></span>
+                        <span>Lucro Projetado: <strong id="lbl-lucro-projetado" class="font-mono text-emerald-600 font-bold">+R$ 1.390,00 (25.3%)</strong></span>
+                    </div>
+                </div>
+
+                <!-- Notas Técnicas / Observações -->
+                <div>
+                    <label class="block text-[11px] font-bold text-slate-600 mb-1">Notas Técnicas / Observações</label>
+                    <input type="text" id="cad-notas-tecnicas" placeholder="Ex: Película 3D aplicada, cabo original, sem marcas." class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-medium text-slate-800 focus:outline-none">
+                </div>
+
+                <div class="flex items-center justify-end gap-2 pt-2">
+                    <button type="button" onclick="closeModal('modal-cadastro-aparelho')" class="btn-pill-secondary">Cancelar</button>
+                    <button type="submit" id="modal-disp-btn-salvar" class="btn-pill-primary">Salvar Aparelho</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- MODAL: SIMULADOR DE VENDA & TRADE-IN (PDV ÁGIL) -->
+    <div id="modal-venda-tradein" class="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 hidden overflow-y-auto ios-modal-backdrop">
+        <div class="bg-white rounded-3xl w-full max-w-3xl max-h-[92vh] overflow-y-auto shadow-2xl p-6 lg:p-8 space-y-6 ios-modal-sheet">
+            <div class="flex items-center justify-between pb-4 border-b border-slate-100">
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-2xl bg-yellow-100 text-yellow-800 flex items-center justify-center font-bold">
+                        <i class="fa-solid fa-cash-register"></i>
+                    </div>
+                    <div>
+                        <h3 class="font-black text-base text-slate-900">Checkout com Trade-In (PDV)</h3>
+                        <p class="text-xs text-slate-500">Selecione o aparelho vendido e abata o usado do cliente.</p>
+                    </div>
+                </div>
+                <button onclick="closeModal('modal-venda-tradein')" class="text-slate-400 hover:text-slate-600 p-1">
+                    <i class="fa-solid fa-xmark text-lg"></i>
+                </button>
+            </div>
+
+            <form id="form-venda-tradein" onsubmit="processarVendaComTradeIn(event)" class="space-y-4">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+                    
+                    <!-- Lado Esquerdo: Aparelho e Cliente -->
+                    <div class="space-y-3">
+                        <div>
+                            <label class="block text-xs font-bold text-slate-700 mb-1">1. Aparelho em Estoque</label>
+                            <select id="venda-dispositivo-select" onchange="aoSelecionarAparelhoVenda(this.value)" required class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold text-slate-800 focus:outline-none">
+                                <option value="">-- Selecione o aparelho disponível --</option>
+                            </select>
+                            <div id="venda-detalhe-aparelho" class="text-xs text-slate-500 hidden pt-1 flex justify-between">
+                                <span id="venda-aparelho-specs">...</span>
+                                <span id="venda-aparelho-preco" class="font-bold text-emerald-600">...</span>
+                            </div>
+                        </div>
+
+                        <div>
+                            <div class="flex items-center justify-between">
+                                <label class="block text-xs font-bold text-slate-700 mb-1">2. Cliente Comprador</label>
+                                <button type="button" onclick="openModalNovoCliente()" class="text-[11px] text-blue-600 font-bold hover:underline">+ Novo</button>
+                            </div>
+                            <select id="venda-cliente-select" required class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold text-slate-800 focus:outline-none">
+                                <option value="">-- Selecione o cliente --</option>
+                            </select>
+                        </div>
+
+                        <!-- Trade-in Toggle Switch -->
+                        <div class="p-3.5 bg-yellow-50/70 border border-yellow-200 rounded-2xl space-y-3">
+                            <label class="flex items-center gap-2.5 cursor-pointer">
+                                <input type="checkbox" id="toggle-tradein" onchange="toggleFormTradeIn(this.checked)" class="accent-slate-900 w-4 h-4 rounded">
+                                <span class="text-xs font-bold text-slate-900">Aceitar Aparelho Usado na Troca (Trade-In)?</span>
+                            </label>
+
+                            <div id="form-tradein-campos" class="space-y-3 hidden pt-2 border-t border-yellow-200">
+                                <div>
+                                    <div class="flex items-center justify-between mb-1">
+                                        <label class="block text-[11px] font-bold text-slate-700">Modelo Entregue</label>
+                                        <button type="button" onclick="openModalNovoModelo()" class="text-[10px] font-bold text-amber-600 hover:text-amber-700">
+                                            <i class="fa-solid fa-plus-circle mr-0.5"></i> Cadastrar
+                                        </button>
+                                    </div>
+                                    <select id="ti-modelo" class="w-full bg-white border border-slate-200 rounded-xl px-3 py-1.5 text-xs font-semibold text-slate-800 focus:outline-none">
+                                        <option value="">-- Selecione o Modelo do Catálogo --</option>
+                                    </select>
+                                </div>
+                                <div class="grid grid-cols-2 gap-2">
+                                    <div>
+                                        <label class="block text-[11px] font-bold text-slate-700 mb-1">IMEI ou Serial</label>
+                                        <input type="text" id="ti-identificador" placeholder="IMEI na troca" class="w-full bg-white border border-slate-200 rounded-xl px-3 py-1.5 text-xs font-mono">
+                                    </div>
+                                    <div>
+                                        <label class="block text-[11px] font-bold text-yellow-800 mb-1">Valor Avaliação (R$)</label>
+                                        <input type="number" step="0.01" id="ti-valor-avaliado" value="0.00" oninput="calcularCheckoutVenda()" class="w-full bg-white border border-yellow-400 rounded-xl px-3 py-1.5 text-xs font-mono font-bold text-slate-900">
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-2">
+                            <div>
+                                <label class="block text-xs font-bold text-slate-700 mb-1">Desconto (R$)</label>
+                                <input type="number" step="0.01" id="venda-desconto" value="0.00" oninput="calcularCheckoutVenda()" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-slate-700 mb-1">Garantia Loja</label>
+                                <select id="venda-garantia-meses" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold">
+                                    <option value="3" selected>90 Dias Balcão</option>
+                                    <option value="6">6 Meses</option>
+                                    <option value="12">1 Ano</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Lado Direito: Resumo Financeiro & Conclusão -->
+                    <div class="bg-slate-50 p-6 rounded-3xl border border-slate-200 flex flex-col justify-between">
+                        <div class="space-y-4">
+                            <h4 class="font-bold text-sm text-slate-900 pb-2 border-b border-slate-200 flex items-center justify-between">
+                                <span>Resumo Financeiro</span>
+                                <span class="text-[11px] text-slate-500 font-mono">Cálculo ao Vivo</span>
+                            </h4>
+
+                            <div class="space-y-2 text-xs text-slate-600">
+                                <div class="flex justify-between">
+                                    <span>Valor Aparelho Vendido:</span>
+                                    <span id="resumo-subtotal" class="font-mono font-bold text-slate-900">R$ 0,00</span>
+                                </div>
+                                <div class="flex justify-between text-rose-600">
+                                    <span>(-) Desconto Concedido:</span>
+                                    <span id="resumo-desconto" class="font-mono font-bold">- R$ 0,00</span>
+                                </div>
+                                <div class="flex justify-between text-amber-600 font-semibold">
+                                    <span>(-) Crédito Trade-In:</span>
+                                    <span id="resumo-tradein" class="font-mono font-bold">- R$ 0,00</span>
+                                </div>
+                                <div class="pt-3 border-t border-slate-200 flex justify-between items-baseline">
+                                    <span class="font-black text-slate-900 text-sm">Total a Pagar:</span>
+                                    <span id="resumo-total-liquido" class="font-black text-2xl text-slate-900 font-mono">R$ 0,00</span>
+                                </div>
+                            </div>
+
+                            <div class="p-3 bg-white rounded-2xl border border-slate-200 space-y-1 text-xs text-slate-500">
+                                <div class="flex justify-between">
+                                    <span>Lucro Bruto Caixa:</span>
+                                    <span id="resumo-lucro-bruto" class="font-bold text-emerald-600 font-mono">+ R$ 0,00</span>
+                                </div>
+                                <div class="flex justify-between">
+                                    <span>Margem Líquida %:</span>
+                                    <span id="resumo-margem-pct" class="font-bold text-emerald-600 font-mono">0.0%</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="pt-4 mt-4 border-t border-slate-200">
+                            <button type="submit" class="w-full py-3.5 bg-[#121316] hover:bg-slate-800 text-white rounded-full font-black text-xs sm:text-sm flex items-center justify-center gap-2 shadow-lg transition-all">
+                                <i class="fa-solid fa-check"></i>
+                                <span>Concluir Venda & Emitir Recibo</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- MODAL: RECIBO & DOCUMENTOS OFICIAIS -->
+    <div id="modal-documento" class="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 hidden overflow-y-auto ios-modal-backdrop">
+        <div class="bg-white rounded-3xl w-full max-w-2xl max-h-[92vh] overflow-y-auto shadow-2xl p-6 lg:p-8 space-y-5 ios-modal-sheet">
+            <div class="flex items-center justify-between pb-4 border-b border-slate-100 no-print">
+                <div class="flex items-center gap-2">
+                    <img src="leao.jpg" class="w-8 h-8 rounded-xl object-cover">
+                    <h3 class="font-bold text-sm text-slate-900">Comprovante Oficial iLion</h3>
+                </div>
+                <div class="flex items-center gap-2">
+                    <button onclick="window.print()" class="btn-pill-secondary">
+                        <i class="fa-solid fa-print"></i> Imprimir
+                    </button>
+                    <button id="btn-whatsapp-doc" class="btn-pill-primary bg-emerald-600 hover:bg-emerald-500 text-white">
+                        <i class="fa-brands fa-whatsapp"></i> WhatsApp
+                    </button>
+                    <button onclick="closeModal('modal-documento')" class="text-slate-400 hover:text-slate-600 p-1">
+                        <i class="fa-solid fa-xmark text-lg"></i>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Abas do Documento -->
+            <div class="flex gap-2 border-b border-slate-100 pb-3 no-print" id="doc-abas">
+                <button onclick="trocarAbaDoc('recibo')" id="aba-btn-recibo" class="pill-tab active">Recibo de Venda</button>
+                <button onclick="trocarAbaDoc('garantia')" id="aba-btn-garantia" class="pill-tab inactive">Termo de Garantia</button>
+                <button onclick="trocarAbaDoc('cessao')" id="aba-btn-cessao" class="pill-tab inactive">Termo de Cessão Trade-In</button>
+            </div>
+
+            <!-- Conteúdo Renderizado do Documento -->
+            <div id="printable-doc-content" class="printable-document bg-white text-slate-900 p-4 space-y-6 text-xs leading-relaxed font-sans">
+                <!-- Preenchido via JS -->
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL: NOVA ENCOMENDA -->
+    <div id="modal-nova-encomenda" class="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 hidden ios-modal-backdrop">
+        <div class="bg-white rounded-3xl w-full max-w-md shadow-2xl p-6 space-y-4 ios-modal-sheet">
+            <div class="flex items-center justify-between pb-3 border-b border-slate-100">
+                <h3 class="font-bold text-sm text-slate-900">Cadastrar Desejo na Lista de Espera</h3>
+                <button onclick="closeModal('modal-nova-encomenda')" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <form onsubmit="salvarNovaEncomenda(event)" class="space-y-3 text-xs">
+                <div>
+                    <label class="block font-bold text-slate-700 mb-1">Cliente</label>
+                    <select id="enc-cliente" required class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2"></select>
+                </div>
+                <div>
+                    <div class="flex items-center justify-between mb-1">
+                        <label class="block font-bold text-slate-700">Modelo Desejado</label>
+                        <button type="button" onclick="openModalNovoModelo()" class="text-[11px] font-bold text-amber-600 hover:text-amber-700">
+                            <i class="fa-solid fa-plus-circle mr-0.5"></i> Cadastrar Modelo
+                        </button>
+                    </div>
+                    <select id="enc-modelo" required class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 focus:outline-none">
+                        <option value="">-- Selecione o Modelo do Catálogo --</option>
+                    </select>
+                </div>
+                <div class="grid grid-cols-2 gap-2">
+                    <div>
+                        <label class="block font-bold text-slate-700 mb-1">Capacidade</label>
+                        <input type="text" id="enc-capacidade" placeholder="Ex: 256GB" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2">
+                    </div>
+                    <div>
+                        <label class="block font-bold text-slate-700 mb-1">Teto Orçamento (R$)</label>
+                        <input type="number" step="0.01" id="enc-orcamento" placeholder="Ex: 6000.00" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 font-mono">
+                    </div>
+                </div>
+                <div class="pt-2 flex justify-end gap-2">
+                    <button type="button" onclick="closeModal('modal-nova-encomenda')" class="btn-pill-secondary">Cancelar</button>
+                    <button type="submit" class="btn-pill-primary">Salvar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- MODAL: NOVO / EDITAR CLIENTE -->
+    <div id="modal-novo-cliente" class="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 hidden ios-modal-backdrop">
+        <div class="bg-white rounded-3xl w-full max-w-md shadow-2xl p-6 space-y-4 ios-modal-sheet">
+            <div class="flex items-center justify-between pb-3 border-b border-slate-100">
+                <div class="flex items-center gap-2">
+                    <div class="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-800">
+                        <i class="fa-solid fa-user-pen"></i>
+                    </div>
+                    <div>
+                        <h3 id="modal-cli-titulo" class="font-bold text-sm text-slate-900">Novo Cliente</h3>
+                        <p class="text-[10px] text-slate-400">Cadastre ou atualize as informações de contato</p>
+                    </div>
+                </div>
+                <button onclick="closeModal('modal-novo-cliente')" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <form onsubmit="salvarNovoCliente(event)" class="space-y-3 text-xs">
+                <input type="hidden" id="cli-id" value="">
+                <div>
+                    <label class="block font-bold text-slate-700 mb-1">Nome Completo *</label>
+                    <input type="text" id="cli-nome" required placeholder="Ex: Mariana Ferreira" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2">
+                </div>
+                <div class="grid grid-cols-2 gap-2">
+                    <div>
+                        <label class="block font-bold text-slate-700 mb-1">WhatsApp *</label>
+                        <input type="text" id="cli-whatsapp" required placeholder="5511999998888" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 font-mono">
+                    </div>
+                    <div>
+                        <label class="block font-bold text-slate-700 mb-1">CPF / Documento</label>
+                        <input type="text" id="cli-cpf" placeholder="000.000.000-00" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 font-mono">
+                    </div>
+                </div>
+                <div class="grid grid-cols-2 gap-2">
+                    <div>
+                        <label class="block font-bold text-slate-700 mb-1">E-mail</label>
+                        <input type="email" id="cli-email" placeholder="cliente@email.com" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2">
+                    </div>
+                    <div>
+                        <label class="block font-bold text-slate-700 mb-1">Aparelho Atual</label>
+                        <input type="text" id="cli-aparelho-atual" placeholder="Ex: iPhone 13 128GB Azul" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2">
+                    </div>
+                </div>
+                <div>
+                    <label class="block font-bold text-slate-700 mb-1">Endereço</label>
+                    <input type="text" id="cli-endereco" placeholder="Ex: Av. Paulista, 1000 - Apto 42" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2">
+                </div>
+                <div>
+                    <label class="block font-bold text-slate-700 mb-1">Observações / Preferências</label>
+                    <input type="text" id="cli-observacoes" placeholder="Ex: Só compra modelos Pro, prefere cor Titânio" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2">
+                </div>
+                <div class="pt-2 flex justify-end gap-2">
+                    <button type="button" onclick="closeModal('modal-novo-cliente')" class="btn-pill-secondary">Cancelar</button>
+                    <button type="submit" id="modal-cli-btn-salvar" class="btn-pill-primary">Salvar Cliente</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- MODAL: NOVO LEAD CRM -->
+    <div id="modal-novo-lead" class="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 hidden ios-modal-backdrop">
+        <div class="bg-white rounded-3xl w-full max-w-md shadow-2xl p-6 space-y-4 ios-modal-sheet">
+            <div class="flex items-center justify-between pb-3 border-b border-slate-100">
+                <h3 class="font-bold text-sm text-slate-900">Novo Contato no CRM</h3>
+                <button onclick="closeModal('modal-novo-lead')" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <form onsubmit="salvarNovoLead(event)" class="space-y-3 text-xs">
+                <div>
+                    <label class="block font-bold text-slate-700 mb-1">Cliente</label>
+                    <select id="crm-cliente" required class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2"></select>
+                </div>
+                <div class="grid grid-cols-2 gap-2">
+                    <div>
+                        <label class="block font-bold text-slate-700 mb-1">Etapa</label>
+                        <select id="crm-etapa" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 font-semibold">
+                            <option value="Novo Contato">Novo Contato</option>
+                            <option value="Em Negociação">Em Negociação</option>
+                            <option value="Aguardando Aparelho/Trade-in">Aguardando Trade-in</option>
+                        </select>
+                    </div>
+                    <div>
+                        <div class="flex items-center justify-between mb-1">
+                            <label class="block font-bold text-slate-700">Interesse (Modelo)</label>
+                            <button type="button" onclick="openModalNovoModelo()" class="text-[10px] font-bold text-amber-600 hover:text-amber-700">
+                                <i class="fa-solid fa-plus-circle mr-0.5"></i> Cadastrar
+                            </button>
+                        </div>
+                        <select id="crm-modelo" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 focus:outline-none">
+                            <option value="">-- Selecione o Modelo do Catálogo --</option>
+                        </select>
+                    </div>
+                </div>
+                <div>
+                    <label class="block font-bold text-slate-700 mb-1">Notas</label>
+                    <textarea id="crm-notas" rows="2" placeholder="Ex: Quer dar o 13 na troca..." class="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5"></textarea>
+                </div>
+                <div class="pt-2 flex justify-end gap-2">
+                    <button type="button" onclick="closeModal('modal-novo-lead')" class="btn-pill-secondary">Cancelar</button>
+                    <button type="submit" class="btn-pill-primary">Salvar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- MODAL: CADASTRO / EDIÇÃO DE MODELO NO CATÁLOGO -->
+    <div id="modal-cadastro-modelo" class="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 hidden overflow-y-auto ios-modal-backdrop">
+        <div class="bg-white rounded-3xl w-full max-w-md shadow-2xl p-6 space-y-5 ios-modal-sheet">
+            <div class="flex items-center justify-between pb-3 border-b border-slate-100">
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center font-bold">
+                        <i class="fa-solid fa-tags"></i>
+                    </div>
+                    <div>
+                        <h3 id="modal-modelo-titulo" class="font-black text-base text-slate-900">Novo Produto / Modelo</h3>
+                        <p class="text-xs text-slate-500">Cadastre o nome padronizado para seleção rápida.</p>
+                    </div>
+                </div>
+                <button onclick="closeModal('modal-cadastro-modelo')" class="text-slate-400 hover:text-slate-600 p-1">
+                    <i class="fa-solid fa-xmark text-lg"></i>
+                </button>
+            </div>
+
+            <form id="form-cadastro-modelo" onsubmit="salvarModeloCatalogo(event)" class="space-y-4 text-xs">
+                <input type="hidden" id="modelo-edit-id" value="">
+                
+                <div>
+                    <label class="block font-bold text-slate-700 mb-1">Categoria / Tipo</label>
+                    <select id="modelo-tipo" required class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold text-slate-800 focus:outline-none">
+                        <option value="iPhone">iPhone</option>
+                        <option value="MacBook">MacBook</option>
+                        <option value="iPad">iPad</option>
+                        <option value="Apple Watch">Apple Watch</option>
+                        <option value="Acessório">Acessório</option>
+                    </select>
+                </div>
+
+                <div>
+                    <label class="block font-bold text-slate-700 mb-1">Nome Oficial do Modelo</label>
+                    <input type="text" id="modelo-nome" required placeholder="Ex: iPhone 16 Pro Max" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-medium text-slate-800 focus:outline-none">
+                    <span class="block text-[11px] text-slate-400 mt-1">Ex: iPhone 15 Pro Max, MacBook Air M3 15", iPad Air M2, Apple Watch Series 9</span>
+                </div>
+
+                <div class="pt-2 flex justify-end gap-2">
+                    <button type="button" onclick="closeModal('modal-cadastro-modelo')" class="btn-pill-secondary">Cancelar</button>
+                    <button type="submit" class="btn-pill-primary">Salvar no Catálogo</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Script Principal Reativo -->
+    <script src="app.js"></script>
+</body>
+</html>
