@@ -999,6 +999,42 @@
                     </div>
                 </div>
 
+                <!-- Fotos do Aparelho (Supabase Cloud Storage) -->
+                <div class="space-y-2 p-3.5 bg-slate-50 rounded-2xl border border-slate-200">
+                    <div class="flex items-center justify-between">
+                        <label class="block text-xs font-bold text-slate-700">
+                            <i class="fa-solid fa-camera mr-1 text-slate-500"></i> Fotos do Aparelho
+                        </label>
+                        <span class="text-[10px] font-semibold text-emerald-700 bg-emerald-100/70 px-2 py-0.5 rounded-full border border-emerald-200">
+                            <i class="fa-solid fa-cloud-arrow-up mr-0.5"></i> Nuvem Supabase
+                        </span>
+                    </div>
+
+                    <!-- Input oculto para seleção de arquivos -->
+                    <input type="file" id="cad-fotos-input" multiple accept="image/png,image/jpeg,image/jpg,image/webp,image/heic,image/gif" onchange="aoSelecionarFotos(event)" class="hidden">
+
+                    <!-- Dropzone / Área de Upload -->
+                    <div id="cad-fotos-dropzone" onclick="document.getElementById('cad-fotos-input').click()"
+                         class="border-2 border-dashed border-slate-200 hover:border-amber-400 hover:bg-white rounded-xl p-3 text-center cursor-pointer transition-all flex flex-col items-center justify-center gap-1 group">
+                        <div class="w-8 h-8 rounded-full bg-slate-100 group-hover:bg-amber-50 group-hover:text-amber-600 flex items-center justify-center text-slate-500 transition-colors">
+                            <i class="fa-solid fa-images text-xs"></i>
+                        </div>
+                        <p class="text-xs font-bold text-slate-700">Clique para anexar fotos ou arraste imagens aqui</p>
+                        <p class="text-[10px] text-slate-400">PNG, JPG, WEBP (a primeira foto será exibida como principal)</p>
+                    </div>
+
+                    <!-- Indicador de Carregamento / Upload -->
+                    <div id="cad-fotos-loading" class="hidden p-2 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-800 flex items-center gap-2">
+                        <i class="fa-solid fa-circle-notch fa-spin text-amber-600 text-xs"></i>
+                        <span id="cad-fotos-loading-text" class="font-medium text-[11px]">Enviando foto para o Supabase Storage...</span>
+                    </div>
+
+                    <!-- Grid de Miniaturas com Fotos Anexadas -->
+                    <div id="cad-fotos-container" class="grid grid-cols-3 sm:grid-cols-4 gap-2 pt-1">
+                        <!-- Miniaturas geradas dinamicamente via JS -->
+                    </div>
+                </div>
+
                 <!-- Notas Técnicas / Observações -->
                 <div>
                     <label class="block text-[11px] font-bold text-slate-600 mb-1">Notas Técnicas / Observações</label>
@@ -1377,6 +1413,60 @@
                     <button type="submit" class="btn-pill-primary">Salvar no Catálogo</button>
                 </div>
             </form>
+        </div>
+    </div>
+
+    <!-- MODAL: GALERIA / VISUALIZADOR DE FOTOS DO APARELHO -->
+    <div id="modal-galeria-fotos" class="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-3 sm:p-6 hidden overflow-y-auto ios-modal-backdrop backdrop-blur-md">
+        <div class="bg-white rounded-3xl w-full max-w-2xl max-h-[95vh] overflow-hidden shadow-2xl flex flex-col ios-modal-sheet">
+            <!-- Cabeçalho -->
+            <div class="flex items-center justify-between p-4 sm:p-5 border-b border-slate-100 bg-slate-50/50">
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center font-bold">
+                        <i class="fa-solid fa-camera"></i>
+                    </div>
+                    <div>
+                        <h3 id="galeria-titulo" class="font-black text-sm sm:text-base text-slate-900 truncate">Fotos do Aparelho</h3>
+                        <p id="galeria-subtitulo" class="text-xs text-slate-500 font-medium truncate">Carregando...</p>
+                    </div>
+                </div>
+                <div class="flex items-center gap-2">
+                    <a id="galeria-btn-link" href="#" target="_blank" title="Abrir imagem original em tela cheia" class="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-600 flex items-center justify-center transition-colors text-xs">
+                        <i class="fa-solid fa-arrow-up-right-from-square"></i>
+                    </a>
+                    <button onclick="closeModal('modal-galeria-fotos')" class="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 hover:text-slate-800 flex items-center justify-center transition-colors">
+                        <i class="fa-solid fa-xmark text-sm"></i>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Visualizador Principal (Imagem em Destaque) -->
+            <div class="relative flex-1 bg-slate-950 flex items-center justify-center min-h-[300px] sm:min-h-[420px] max-h-[60vh] p-2 overflow-hidden select-none">
+                <img id="galeria-imagem-principal" src="" alt="Foto do Produto" class="max-w-full max-h-[56vh] object-contain rounded-xl shadow-lg transition-all duration-300">
+                
+                <!-- Botões de Navegação Anterior / Próximo -->
+                <button id="galeria-btn-prev" onclick="navegarGaleria(-1)" class="absolute left-3 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-black/60 hover:bg-black/85 text-white flex items-center justify-center backdrop-blur-sm transition-all">
+                    <i class="fa-solid fa-chevron-left text-sm"></i>
+                </button>
+                <button id="galeria-btn-next" onclick="navegarGaleria(1)" class="absolute right-3 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-black/60 hover:bg-black/85 text-white flex items-center justify-center backdrop-blur-sm transition-all">
+                    <i class="fa-solid fa-chevron-right text-sm"></i>
+                </button>
+
+                <!-- Badge Contador de Fotos -->
+                <div id="galeria-contador" class="absolute bottom-3 left-1/2 -translate-x-1/2 px-3 py-1 bg-black/70 backdrop-blur-md rounded-full text-white text-[11px] font-bold tracking-wider">
+                    Foto 1 de 1
+                </div>
+            </div>
+
+            <!-- Fita Inferior de Miniaturas -->
+            <div class="p-3 sm:p-4 bg-slate-50 border-t border-slate-100 flex items-center justify-between gap-3">
+                <div id="galeria-miniaturas" class="flex items-center gap-2 overflow-x-auto py-1 max-w-full">
+                    <!-- Gerado via JS -->
+                </div>
+                <button type="button" onclick="closeModal('modal-galeria-fotos')" class="btn-pill-secondary shrink-0 text-xs py-2 px-4">
+                    Fechar
+                </button>
+            </div>
         </div>
     </div>
 

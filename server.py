@@ -74,6 +74,12 @@ def sync_upsert_supabase(table, data_dict):
             except Exception:
                 clean_data['checklist_tecnico'] = {}
 
+        if 'fotos' in clean_data and isinstance(clean_data['fotos'], str):
+            try:
+                clean_data['fotos'] = json.loads(clean_data['fotos'])
+            except Exception:
+                clean_data['fotos'] = []
+
         if table == 'trocas_trade_in' and 'termo_cessao_aceito' in clean_data:
             clean_data['termo_cessao_aceito'] = bool(clean_data['termo_cessao_aceito'])
 
@@ -96,6 +102,33 @@ def sync_upsert_supabase(table, data_dict):
             except Exception:
                 pass
         sys.stderr.write(f"[Supabase Upsert Aviso ({table})]: {err_msg}\n")
+
+def upload_to_supabase_storage(file_bytes, filename, content_type='image/jpeg'):
+    """Faz upload de fotos para o bucket 'produtos' no Supabase Storage."""
+    url, key = get_supabase_headers()
+    if not url or not key:
+        return None
+    import urllib.request, ssl
+    ctx = ssl.create_default_context()
+    endpoint = f"{url}/storage/v1/object/produtos/{filename}"
+    headers = {
+        'Authorization': f'Bearer {key}',
+        'apikey': key,
+        'Content-Type': content_type,
+        'x-upsert': 'true'
+    }
+    req = urllib.request.Request(endpoint, data=file_bytes, headers=headers, method='POST')
+    try:
+        with urllib.request.urlopen(req, context=ctx, timeout=15) as resp:
+            if resp.status in (200, 201):
+                return f"{url}/storage/v1/object/public/produtos/{filename}"
+    except Exception as e:
+        err_msg = str(e)
+        if hasattr(e, 'read'):
+            try: err_msg += f" - {e.read().decode('utf-8')}"
+            except Exception: pass
+        sys.stderr.write(f"[Supabase Storage Upload Aviso]: {err_msg}\n")
+    return None
 
 # Mantém retrocompatibilidade com chamadas antigas
 def sync_to_supabase(table, data_dict):
@@ -184,6 +217,8 @@ def sync_pull_from_supabase(target_table=None):
                     clean_row = {k: v for k, v in row.items() if k in sqlite_cols}
                     if 'checklist_tecnico' in clean_row and isinstance(clean_row['checklist_tecnico'], (dict, list)):
                         clean_row['checklist_tecnico'] = json.dumps(clean_row['checklist_tecnico'])
+                    if 'fotos' in clean_row and isinstance(clean_row['fotos'], (dict, list)):
+                        clean_row['fotos'] = json.dumps(clean_row['fotos'])
                     cols = list(clean_row.keys())
                     if not cols:
                         continue
@@ -474,6 +509,12 @@ def init_db():
                 break
     except Exception as me:
         sys.stderr.write(f"[Migração Dispositivos Aviso]: {me}\n")
+
+    # Migração automática: adicionar coluna fotos na tabela dispositivos se não existir
+    try:
+        c.execute("ALTER TABLE dispositivos ADD COLUMN fotos TEXT DEFAULT '[]'")
+    except Exception:
+        pass
     
     # Pedidos de Venda
     c.execute('''
@@ -1207,6 +1248,15 @@ class AppleStoreHandler(http.server.SimpleHTTPRequestHandler):
                             item['checklist_tecnico'] = json.loads(item['checklist_tecnico'])
                         except Exception:
                             item['checklist_tecnico'] = {}
+                    if item.get('fotos'):
+                        try:
+                            item['fotos'] = json.loads(item['fotos']) if isinstance(item['fotos'], str) else item['fotos']
+                            if not isinstance(item['fotos'], list):
+                                item['fotos'] = []
+                        except Exception:
+                            item['fotos'] = []
+                    else:
+                        item['fotos'] = []
                     dispositivos.append(item)
 
                 self.send_json({'dispositivos': dispositivos})
@@ -1318,12 +1368,60 @@ class AppleStoreHandler(http.server.SimpleHTTPRequestHandler):
         now_str = datetime.now().isoformat()
 
         try:
+            # Upload de Foto para Supabase Storage (com backup local)
+            if path == '/api/upload-foto':
+                filename_orig = data.get('filename', 'foto.jpg')
+                base64_str = data.get('data', '')
+                mime_type = data.get('mime_type', 'image/jpeg')
+
+                if ',' in base64_str:
+                    base64_str = base64_str.split(',', 1)[1]
+
+                import base64
+                try:
+                    file_bytes = base64.b64decode(base64_str)
+                except Exception as be:
+                    self.send_json({'error': f'Falha ao decodificar imagem: {be}'}, 400)
+                    return
+
+                ext = os.path.splitext(filename_orig)[1].lower()
+                if not ext or ext not in ('.jpg', '.jpeg', '.png', '.webp', '.heic', '.gif'):
+                    ext = '.jpg'
+
+                unique_name = f"disp_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{str(uuid.uuid4())[:8]}{ext}"
+
+                # Salva backup local em uploads/
+                uploads_dir = os.path.join(BASE_DIR, "uploads")
+                os.makedirs(uploads_dir, exist_ok=True)
+                local_path = os.path.join(uploads_dir, unique_name)
+                try:
+                    with open(local_path, "wb") as f:
+                        f.write(file_bytes)
+                except Exception as fe:
+                    sys.stderr.write(f"[Local Save Aviso]: {fe}\n")
+
+                # Upload para Supabase Storage (bucket produtos)
+                cloud_url = upload_to_supabase_storage(file_bytes, unique_name, mime_type)
+                final_url = cloud_url if cloud_url else f"/uploads/{unique_name}"
+
+                self.send_json({
+                    'success': True,
+                    'url': final_url,
+                    'cloud_url': cloud_url,
+                    'local_url': f"/uploads/{unique_name}",
+                    'filename': unique_name
+                })
+                return
+
             # 1. Cadastrar / Editar Dispositivo no Estoque
             if path == '/api/dispositivos':
                 disp_id = data.get('id')
                 checklist_val = data.get('checklist_tecnico', {})
                 checklist_json = json.dumps(checklist_val) if isinstance(checklist_val, dict) else (checklist_val or '{}')
                 
+                fotos_val = data.get('fotos', [])
+                fotos_json = json.dumps(fotos_val) if isinstance(fotos_val, list) else (fotos_val or '[]')
+
                 custo_compra = float(data.get('custo_compra', 0))
                 custos_adicionais = float(data.get('custos_adicionais', 0))
                 preco_sugerido = float(data.get('preco_sugerido', 0))
@@ -1342,7 +1440,7 @@ class AppleStoreHandler(http.server.SimpleHTTPRequestHandler):
                             tipo = ?, modelo = ?, capacidade = ?, cor = ?, identificador_tipo = ?,
                             identificador_valor = ?, saude_bateria = ?, ciclos_bateria = ?, condicao_grau = ?,
                             checklist_tecnico = ?, status = ?, custo_compra = ?, custos_adicionais = ?,
-                            preco_sugerido = ?, preco_minimo = ?, notas_tecnicas = ?
+                            preco_sugerido = ?, preco_minimo = ?, notas_tecnicas = ?, fotos = ?
                         WHERE id = ?
                     ''', (
                         data.get('tipo', 'iPhone'),
@@ -1361,6 +1459,7 @@ class AppleStoreHandler(http.server.SimpleHTTPRequestHandler):
                         preco_sugerido,
                         preco_minimo,
                         data.get('notas_tecnicas', ''),
+                        fotos_json,
                         disp_id
                     ))
                     c.execute("SELECT * FROM dispositivos WHERE id = ?", (disp_id,))
@@ -1383,8 +1482,8 @@ class AppleStoreHandler(http.server.SimpleHTTPRequestHandler):
                             id, tipo, modelo, capacidade, cor, identificador_tipo, identificador_valor,
                             saude_bateria, ciclos_bateria, condicao_grau, checklist_tecnico, status,
                             custo_compra, custos_adicionais, preco_sugerido, preco_minimo, origem,
-                            cliente_origem_id, notas_tecnicas, data_entrada, created_at
-                        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                            cliente_origem_id, notas_tecnicas, fotos, data_entrada, created_at
+                        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                     ''', (
                         new_id,
                         data.get('tipo', 'iPhone'),
@@ -1405,6 +1504,7 @@ class AppleStoreHandler(http.server.SimpleHTTPRequestHandler):
                         data.get('origem', 'Compra Fornecedor'),
                         data.get('cliente_origem_id'),
                         data.get('notas_tecnicas', ''),
+                        fotos_json,
                         now_str,
                         now_str
                     ))

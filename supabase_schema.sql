@@ -312,3 +312,40 @@ CREATE POLICY "Permitir leitura total itens_venda" ON itens_venda FOR ALL USING 
 CREATE POLICY "Permitir leitura total trocas_trade_in" ON trocas_trade_in FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Permitir leitura total interacoes_crm" ON interacoes_crm FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Permitir leitura total encomendas_desejos" ON encomendas_desejos FOR ALL USING (true) WITH CHECK (true);
+
+-- ==============================================================================
+-- SUPORTE A FOTOS DE PRODUTOS & SUPABASE STORAGE (BUCKET 'produtos')
+-- ==============================================================================
+ALTER TABLE dispositivos ADD COLUMN IF NOT EXISTS fotos JSONB DEFAULT '[]'::jsonb;
+
+-- Criar bucket 'produtos' com acesso público (caso ainda não exista)
+INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+VALUES (
+    'produtos',
+    'produtos',
+    true,
+    10485760, -- 10MB por foto
+    ARRAY['image/png', 'image/jpeg', 'image/jpg', 'image/webp', 'image/heic', 'image/gif']
+)
+ON CONFLICT (id) DO UPDATE SET public = true;
+
+-- Políticas de RLS para visualização pública e upload das fotos de produtos
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_policies WHERE tablename = 'objects' AND policyname = 'Permitir visualização pública de fotos de produtos'
+    ) THEN
+        CREATE POLICY "Permitir visualização pública de fotos de produtos"
+        ON storage.objects FOR SELECT
+        USING (bucket_id = 'produtos');
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_policies WHERE tablename = 'objects' AND policyname = 'Permitir upload de fotos de produtos'
+    ) THEN
+        CREATE POLICY "Permitir upload de fotos de produtos"
+        ON storage.objects FOR INSERT
+        WITH CHECK (bucket_id = 'produtos');
+    END IF;
+END $$;
+

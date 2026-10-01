@@ -25,6 +25,8 @@ const AppState = {
     modelos: [],
     filtroCategoriaModelo: 'Todos',
     termoBuscaModelos: '',
+    fotosCadastro: [],
+    galeriaAtiva: null,
     supabaseClient: null
 };
 
@@ -33,6 +35,7 @@ const AppState = {
 // ==============================================================================
 document.addEventListener('DOMContentLoaded', async () => {
     initKeyboardShortcuts();
+    initDropzoneFotos();
     await checkSupabaseConfig();
     await loadAllData();
 });
@@ -48,6 +51,18 @@ function initKeyboardShortcuts() {
             const activeModal = document.querySelector('.ios-modal-backdrop.active');
             if (activeModal) {
                 closeModal(activeModal.id);
+            }
+        }
+        if (e.key === 'ArrowLeft') {
+            const galeriaModal = document.getElementById('modal-galeria-fotos');
+            if (galeriaModal && !galeriaModal.classList.contains('hidden')) {
+                navegarGaleria(-1);
+            }
+        }
+        if (e.key === 'ArrowRight') {
+            const galeriaModal = document.getElementById('modal-galeria-fotos');
+            if (galeriaModal && !galeriaModal.classList.contains('hidden')) {
+                navegarGaleria(1);
             }
         }
     });
@@ -591,23 +606,40 @@ function renderEstoque() {
         if (d.tipo === 'iPad') icon = 'fa-tablet-screen-button';
         if (d.tipo === 'Apple Watch') icon = 'fa-clock';
 
+        let fotos = d.fotos;
+        if (typeof fotos === 'string') {
+            try { fotos = JSON.parse(fotos); } catch (e) { fotos = []; }
+        }
+        fotos = Array.isArray(fotos) ? fotos : [];
+        const temFotos = fotos.length > 0;
+        const fotoPrincipal = temFotos ? fotos[0] : null;
+
         const modeloSafe = (d.modelo || 'Aparelho').replace(/'/g, "\\'");
 
         return `
             <div class="bento-card p-6 flex flex-col justify-between space-y-4">
                 <div>
-                    <!-- Topo do Card com Ícone, Modelo e Status -->
+                    <!-- Topo do Card com Foto/Ícone, Modelo e Status -->
                     <div class="flex items-start justify-between gap-3 mb-3">
-                        <div class="flex items-center gap-3">
-                            <div class="w-11 h-11 rounded-2xl bg-slate-100 flex items-center justify-center text-slate-800 text-lg">
-                                <i class="fa-solid ${icon}"></i>
-                            </div>
-                            <div>
-                                <h4 class="font-black text-sm text-slate-900 leading-tight">${d.modelo}</h4>
-                                <p class="text-xs text-slate-500 font-medium">${d.capacidade} &bull; ${d.cor}</p>
+                        <div class="flex items-center gap-3 overflow-hidden">
+                            ${fotoPrincipal ? `
+                                <div onclick="abrirGaleriaFotos('${d.id}')" title="Clique para ver ${fotos.length} fotos" class="w-12 h-12 rounded-2xl overflow-hidden relative shrink-0 cursor-pointer shadow-sm border border-slate-200 group bg-slate-100">
+                                    <img src="${fotoPrincipal}" alt="${d.modelo}" class="w-full h-full object-cover group-hover:scale-110 transition-transform duration-200">
+                                    <span class="absolute bottom-0.5 right-0.5 px-1 py-0.2 bg-black/75 backdrop-blur-sm text-white text-[9px] font-bold rounded flex items-center gap-0.5">
+                                        <i class="fa-solid fa-camera text-[8px]"></i> ${fotos.length}
+                                    </span>
+                                </div>
+                            ` : `
+                                <div onclick="abrirModalEditarAparelho('${d.id}')" title="Sem fotos. Clique para anexar." class="w-11 h-11 rounded-2xl bg-slate-100 flex items-center justify-center text-slate-800 text-lg shrink-0 cursor-pointer hover:bg-slate-200 transition-colors">
+                                    <i class="fa-solid ${icon}"></i>
+                                </div>
+                            `}
+                            <div class="overflow-hidden">
+                                <h4 class="font-black text-sm text-slate-900 leading-tight truncate">${d.modelo}</h4>
+                                <p class="text-xs text-slate-500 font-medium truncate">${d.capacidade} &bull; ${d.cor}</p>
                             </div>
                         </div>
-                        <span class="text-[10px] font-bold px-2.5 py-0.5 rounded-full ${statusClass}">
+                        <span class="text-[10px] font-bold px-2.5 py-0.5 rounded-full shrink-0 ${statusClass}">
                             ${d.status}
                         </span>
                     </div>
@@ -650,17 +682,36 @@ function renderEstoque() {
                     </div>
                 </div>
 
-                <!-- Botões de Ação: Venda, Edição e Exclusão -->
-                <div class="pt-2 flex items-center gap-2">
+                <!-- Botões de Ação: Venda, Galeria, Edição e Exclusão -->
+                <div class="pt-2 flex items-center gap-1.5">
                     ${d.status === 'Em Estoque' ? `
-                        <button onclick="iniciarVendaAparelho('${d.id}')" class="flex-1 py-2.5 bg-[#121316] hover:bg-slate-800 text-white rounded-full text-xs font-bold flex items-center justify-center gap-2 shadow-sm transition-all">
-                            <i class="fa-solid fa-cart-shopping"></i> Vender com Trade-In
+                        <button onclick="iniciarVendaAparelho('${d.id}')" class="flex-1 py-2.5 bg-[#121316] hover:bg-slate-800 text-white rounded-full text-xs font-bold flex items-center justify-center gap-2 shadow-sm transition-all truncate px-2">
+                            <i class="fa-solid fa-cart-shopping"></i> Vender
                         </button>
                     ` : `
-                        <div class="flex-1 py-2 bg-slate-100 text-slate-400 rounded-full text-xs font-semibold text-center">
+                        <div class="flex-1 py-2 bg-slate-100 text-slate-400 rounded-full text-xs font-semibold text-center truncate px-2">
                             Indisponível (${d.status})
                         </div>
                     `}
+
+                    <!-- Botão de Fotos / Galeria -->
+                    ${temFotos ? `
+                        <button onclick="abrirGaleriaFotos('${d.id}')" 
+                                title="Visualizar ${fotos.length} fotos deste aparelho" 
+                                class="w-9 h-9 shrink-0 flex items-center justify-center rounded-full bg-amber-50 hover:bg-amber-100 text-amber-600 transition-colors relative">
+                            <i class="fa-solid fa-camera text-xs"></i>
+                            <span class="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-amber-500 text-white text-[9px] font-bold flex items-center justify-center shadow-xs">
+                                ${fotos.length}
+                            </span>
+                        </button>
+                    ` : `
+                        <button onclick="abrirModalEditarAparelho('${d.id}')" 
+                                title="Anexar fotos deste aparelho" 
+                                class="w-9 h-9 shrink-0 flex items-center justify-center rounded-full bg-slate-100 hover:bg-slate-200 text-slate-400 hover:text-slate-600 transition-colors">
+                            <i class="fa-solid fa-camera text-xs"></i>
+                        </button>
+                    `}
+
                     <button onclick="abrirModalEditarAparelho('${d.id}')" 
                             title="Editar dados deste aparelho" 
                             class="w-9 h-9 shrink-0 flex items-center justify-center rounded-full bg-slate-100 hover:bg-slate-200 text-slate-700 hover:text-slate-900 transition-colors">
@@ -730,6 +781,14 @@ function abrirModalEditarAparelho(dispId) {
     document.getElementById('cad-custos-extras').value = (disp.custos_adicionais || 0).toFixed(2);
     document.getElementById('cad-preco-sugerido').value = (disp.preco_sugerido || 0).toFixed(2);
     document.getElementById('cad-notas-tecnicas').value = disp.notas_tecnicas || '';
+
+    // Carregar fotos do dispositivo
+    let fotos = disp.fotos;
+    if (typeof fotos === 'string') {
+        try { fotos = JSON.parse(fotos); } catch (e) { fotos = []; }
+    }
+    AppState.fotosCadastro = Array.isArray(fotos) ? [...fotos] : [];
+    renderPreviewFotosCadastro();
 
     calcularMargensCadastro();
     openModal('modal-cadastro-aparelho');
@@ -1244,6 +1303,9 @@ function openModalCadastroAparelho() {
     document.getElementById('modal-disp-subtitulo').innerText = "Cadastre item individual com IMEI e checklist.";
     document.getElementById('modal-disp-btn-salvar').innerText = "Salvar Aparelho";
 
+    AppState.fotosCadastro = [];
+    renderPreviewFotosCadastro();
+
     document.getElementById('cad-status').value = 'Em Estoque';
     document.getElementById('cad-bateria').value = 100;
     document.getElementById('cad-bateria-num').value = 100;
@@ -1350,7 +1412,8 @@ async function salvarNovoDispositivo(e) {
         preco_sugerido: parseFloat(document.getElementById('cad-preco-sugerido').value) || 0,
         preco_minimo: (parseFloat(document.getElementById('cad-preco-sugerido').value) || 0) * 0.95,
         status: document.getElementById('cad-status').value || 'Em Estoque',
-        notas_tecnicas: document.getElementById('cad-notas-tecnicas').value.trim() || null
+        notas_tecnicas: document.getElementById('cad-notas-tecnicas').value.trim() || null,
+        fotos: AppState.fotosCadastro || []
     };
 
     if (editId) {
@@ -2409,4 +2472,276 @@ function atualizarSelectsModelos(valorPreferencial = null) {
         }
     });
 }
+
+// ==============================================================================
+// GESTÃO DE FOTOS & STORAGE SUPABASE
+// ==============================================================================
+
+function initDropzoneFotos() {
+    const dropzone = document.getElementById('cad-fotos-dropzone');
+    if (!dropzone) return;
+
+    ['dragenter', 'dragover'].forEach(eventName => {
+        dropzone.addEventListener(eventName, (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            dropzone.classList.add('border-amber-500', 'bg-amber-50/50');
+        }, false);
+    });
+
+    ['dragleave', 'drop'].forEach(eventName => {
+        dropzone.addEventListener(eventName, (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            dropzone.classList.remove('border-amber-500', 'bg-amber-50/50');
+        }, false);
+    });
+
+    dropzone.addEventListener('drop', (e) => {
+        const dt = e.dataTransfer;
+        const files = dt.files;
+        if (files && files.length > 0) {
+            processarArquivosFotos(files);
+        }
+    }, false);
+}
+
+function aoSelecionarFotos(event) {
+    const files = event.target.files;
+    if (files && files.length > 0) {
+        processarArquivosFotos(files);
+    }
+    // Permite selecionar novamente o mesmo arquivo se necessário
+    event.target.value = '';
+}
+
+function comprimirImagem(file, maxDimension = 1400, quality = 0.82) {
+    return new Promise((resolve, reject) => {
+        if (!file.type || !file.type.startsWith('image/')) {
+            return reject(new Error('O arquivo selecionado não é uma imagem válida.'));
+        }
+
+        const reader = new FileReader();
+        reader.onload = (readerEvent) => {
+            const img = new Image();
+            img.onload = () => {
+                let width = img.width;
+                let height = img.height;
+
+                if (width > maxDimension || height > maxDimension) {
+                    if (width > height) {
+                        height = Math.round((height * maxDimension) / width);
+                        width = maxDimension;
+                    } else {
+                        width = Math.round((width * maxDimension) / height);
+                        height = maxDimension;
+                    }
+                }
+
+                const canvas = document.createElement('canvas');
+                canvas.width = width;
+                canvas.height = height;
+
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(img, 0, 0, width, height);
+
+                // Converte para JPEG otimizado para web e armazenamento na nuvem
+                const base64 = canvas.toDataURL('image/jpeg', quality);
+                const safeName = (file.name || 'foto.jpg').replace(/\.[^/.]+$/, "") + ".jpg";
+                resolve({ base64, filename: safeName });
+            };
+            img.onerror = () => reject(new Error('Erro ao decodificar a imagem.'));
+            img.src = readerEvent.target.result;
+        };
+        reader.onerror = () => reject(new Error('Erro ao ler arquivo do computador.'));
+        reader.readAsDataURL(file);
+    });
+}
+
+async function processarArquivosFotos(files) {
+    if (!AppState.fotosCadastro) AppState.fotosCadastro = [];
+
+    const loadingEl = document.getElementById('cad-fotos-loading');
+    const loadingText = document.getElementById('cad-fotos-loading-text');
+
+    if (loadingEl) loadingEl.classList.remove('hidden');
+
+    const total = files.length;
+    let enviados = 0;
+
+    for (let i = 0; i < total; i++) {
+        const file = files[i];
+        if (loadingText) loadingText.innerText = `Otimizando foto ${i + 1} de ${total}...`;
+
+        try {
+            const { base64, filename } = await comprimirImagem(file);
+
+            if (loadingText) loadingText.innerText = `Salvando foto ${i + 1} de ${total} no Supabase Storage...`;
+
+            const res = await fetch('/api/upload-foto', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    filename: filename,
+                    image_base64: base64
+                })
+            });
+
+            const data = await res.json();
+            if (data.success && data.url) {
+                AppState.fotosCadastro.push(data.url);
+                enviados++;
+                renderPreviewFotosCadastro();
+            } else {
+                alert(`Erro ao salvar foto "${file.name}": ${data.error || 'Falha no upload'}`);
+            }
+        } catch (err) {
+            console.error('Erro no upload de foto:', err);
+            alert(`Falha ao processar "${file.name}": ${err.message}`);
+        }
+    }
+
+    if (loadingEl) loadingEl.classList.add('hidden');
+    if (enviados > 0) {
+        showToast(`${enviados} foto(s) anexada(s) com sucesso!`);
+    }
+}
+
+function renderPreviewFotosCadastro() {
+    const container = document.getElementById('cad-fotos-container');
+    if (!container) return;
+
+    const fotos = AppState.fotosCadastro || [];
+    if (fotos.length === 0) {
+        container.innerHTML = '';
+        return;
+    }
+
+    container.innerHTML = fotos.map((url, idx) => `
+        <div class="relative group rounded-2xl overflow-hidden border border-slate-200 bg-slate-100 aspect-square shadow-xs">
+            <img src="${url}" alt="Foto ${idx + 1}" class="w-full h-full object-cover">
+            
+            ${idx === 0 ? `
+                <span class="absolute bottom-1.5 left-1.5 px-2 py-0.5 rounded-md bg-black/75 backdrop-blur-xs text-white text-[9px] font-bold">
+                    Capa
+                </span>
+            ` : ''}
+
+            <!-- Botão Excluir -->
+            <button type="button" onclick="removerFotoCadastro(${idx})" 
+                    title="Remover foto" 
+                    class="absolute top-1.5 right-1.5 w-6 h-6 rounded-full bg-rose-600 hover:bg-rose-700 text-white flex items-center justify-center text-xs shadow-md transition-all opacity-90 hover:opacity-100">
+                <i class="fa-solid fa-xmark"></i>
+            </button>
+        </div>
+    `).join('');
+}
+
+function removerFotoCadastro(index) {
+    if (AppState.fotosCadastro && AppState.fotosCadastro[index] !== undefined) {
+        AppState.fotosCadastro.splice(index, 1);
+        renderPreviewFotosCadastro();
+    }
+}
+
+// ==============================================================================
+// GALERIA LIGHTBOX DE FOTOS (VISUALIZADOR)
+// ==============================================================================
+
+function abrirGaleriaFotos(dispId, indexInicial = 0) {
+    const disp = AppState.dispositivos.find(d => d.id === dispId);
+    if (!disp) return;
+
+    let fotos = disp.fotos;
+    if (typeof fotos === 'string') {
+        try { fotos = JSON.parse(fotos); } catch (e) { fotos = []; }
+    }
+    fotos = Array.isArray(fotos) ? fotos : [];
+
+    if (fotos.length === 0) {
+        alert("Este aparelho ainda não possui fotos cadastradas. Clique no ícone de lápis para editar e anexar fotos.");
+        return;
+    }
+
+    AppState.galeriaAtiva = {
+        dispId: disp.id,
+        modelo: disp.modelo || 'Aparelho',
+        detalhes: `${disp.capacidade || ''} • ${disp.cor || ''} • ${disp.identificador_tipo || 'IMEI'}: ${disp.identificador_valor || ''}`,
+        fotos: fotos,
+        index: (indexInicial >= 0 && indexInicial < fotos.length) ? indexInicial : 0
+    };
+
+    renderVisualizadorGaleria();
+    openModal('modal-galeria-fotos');
+}
+
+function renderVisualizadorGaleria() {
+    const galeria = AppState.galeriaAtiva;
+    if (!galeria || !galeria.fotos || galeria.fotos.length === 0) return;
+
+    const total = galeria.fotos.length;
+    const curIdx = galeria.index;
+    const currentUrl = galeria.fotos[curIdx];
+
+    const tituloEl = document.getElementById('galeria-titulo');
+    if (tituloEl) tituloEl.innerText = galeria.modelo;
+
+    const subtituloEl = document.getElementById('galeria-subtitulo');
+    if (subtituloEl) subtituloEl.innerText = galeria.detalhes;
+
+    const imgPrincipal = document.getElementById('galeria-imagem-principal');
+    if (imgPrincipal) {
+        imgPrincipal.src = currentUrl;
+    }
+
+    const btnLink = document.getElementById('galeria-btn-link');
+    if (btnLink) {
+        btnLink.href = currentUrl;
+    }
+
+    const contador = document.getElementById('galeria-contador');
+    if (contador) {
+        contador.innerText = `Foto ${curIdx + 1} de ${total}`;
+    }
+
+    const btnPrev = document.getElementById('galeria-btn-prev');
+    const btnNext = document.getElementById('galeria-btn-next');
+    if (total <= 1) {
+        if (btnPrev) btnPrev.classList.add('hidden');
+        if (btnNext) btnNext.classList.add('hidden');
+    } else {
+        if (btnPrev) btnPrev.classList.remove('hidden');
+        if (btnNext) btnNext.classList.remove('hidden');
+    }
+
+    // Miniaturas na barra inferior
+    const miniaturasEl = document.getElementById('galeria-miniaturas');
+    if (miniaturasEl) {
+        miniaturasEl.innerHTML = galeria.fotos.map((url, i) => `
+            <button type="button" onclick="irParaFotoGaleria(${i})" 
+                    class="w-12 h-12 rounded-xl overflow-hidden shrink-0 border-2 transition-all ${i === curIdx ? 'border-amber-500 scale-105 shadow-md ring-2 ring-amber-400/40' : 'border-slate-200 opacity-60 hover:opacity-100'}">
+                <img src="${url}" alt="Miniatura ${i + 1}" class="w-full h-full object-cover">
+            </button>
+        `).join('');
+    }
+}
+
+function navegarGaleria(direcao) {
+    const galeria = AppState.galeriaAtiva;
+    if (!galeria || !galeria.fotos || galeria.fotos.length <= 1) return;
+
+    const total = galeria.fotos.length;
+    galeria.index = (galeria.index + direcao + total) % total;
+    renderVisualizadorGaleria();
+}
+
+function irParaFotoGaleria(index) {
+    const galeria = AppState.galeriaAtiva;
+    if (!galeria || !galeria.fotos) return;
+    if (index >= 0 && index < galeria.fotos.length) {
+        galeria.index = index;
+        renderVisualizadorGaleria();
+    }
+}
+
 
