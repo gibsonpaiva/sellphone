@@ -2517,41 +2517,53 @@ function aoSelecionarFotos(event) {
 
 function comprimirImagem(file, maxDimension = 1400, quality = 0.82) {
     return new Promise((resolve, reject) => {
-        if (!file.type || !file.type.startsWith('image/')) {
+        const isImage = (file.type && file.type.startsWith('image/')) || /\.(jpe?g|png|webp|gif|heic|bmp)$/i.test(file.name || '');
+        if (!isImage) {
             return reject(new Error('O arquivo selecionado não é uma imagem válida.'));
         }
 
         const reader = new FileReader();
         reader.onload = (readerEvent) => {
+            const resultData = readerEvent.target.result;
             const img = new Image();
             img.onload = () => {
-                let width = img.width;
-                let height = img.height;
+                try {
+                    let width = img.width;
+                    let height = img.height;
 
-                if (width > maxDimension || height > maxDimension) {
-                    if (width > height) {
-                        height = Math.round((height * maxDimension) / width);
-                        width = maxDimension;
-                    } else {
-                        width = Math.round((width * maxDimension) / height);
-                        height = maxDimension;
+                    if (width > maxDimension || height > maxDimension) {
+                        if (width > height) {
+                            height = Math.round((height * maxDimension) / width);
+                            width = maxDimension;
+                        } else {
+                            width = Math.round((width * maxDimension) / height);
+                            height = maxDimension;
+                        }
                     }
+
+                    const canvas = document.createElement('canvas');
+                    canvas.width = width;
+                    canvas.height = height;
+
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0, width, height);
+
+                    // Converte para JPEG otimizado para web e nuvem
+                    const base64 = canvas.toDataURL('image/jpeg', quality);
+                    const safeName = (file.name || 'foto.jpg').replace(/\.[^/.]+$/, "") + ".jpg";
+                    resolve({ base64, filename: safeName });
+                } catch (canvasErr) {
+                    // Fallback caso canvas dê erro em algum formato
+                    const safeName = (file.name || 'foto.jpg').replace(/\.[^/.]+$/, "") + ".jpg";
+                    resolve({ base64: resultData, filename: safeName });
                 }
-
-                const canvas = document.createElement('canvas');
-                canvas.width = width;
-                canvas.height = height;
-
-                const ctx = canvas.getContext('2d');
-                ctx.drawImage(img, 0, 0, width, height);
-
-                // Converte para JPEG otimizado para web e armazenamento na nuvem
-                const base64 = canvas.toDataURL('image/jpeg', quality);
-                const safeName = (file.name || 'foto.jpg').replace(/\.[^/.]+$/, "") + ".jpg";
-                resolve({ base64, filename: safeName });
             };
-            img.onerror = () => reject(new Error('Erro ao decodificar a imagem.'));
-            img.src = readerEvent.target.result;
+            img.onerror = () => {
+                // Fallback para envio do arquivo bruto se o navegador não decodificou na tag Image
+                const safeName = (file.name || 'foto.jpg').replace(/\.[^/.]+$/, "") + ".jpg";
+                resolve({ base64: resultData, filename: safeName });
+            };
+            img.src = resultData;
         };
         reader.onerror = () => reject(new Error('Erro ao ler arquivo do computador.'));
         reader.readAsDataURL(file);
@@ -2583,7 +2595,9 @@ async function processarArquivosFotos(files) {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     filename: filename,
-                    image_base64: base64
+                    image_base64: base64,
+                    data: base64,
+                    mime_type: 'image/jpeg'
                 })
             });
 
@@ -2618,8 +2632,8 @@ function renderPreviewFotosCadastro() {
     }
 
     container.innerHTML = fotos.map((url, idx) => `
-        <div class="relative group rounded-2xl overflow-hidden border border-slate-200 bg-slate-100 aspect-square shadow-xs">
-            <img src="${url}" alt="Foto ${idx + 1}" class="w-full h-full object-cover">
+        <div class="relative group rounded-2xl overflow-hidden border border-slate-200 bg-slate-100 aspect-square shadow-xs flex items-center justify-center">
+            <img src="${url}" alt="Foto ${idx + 1}" class="w-full h-full object-cover" onerror="this.onerror=null; this.src='https://placehold.co/120x120/f1f5f9/94a3b8?text=Carregando';">
             
             ${idx === 0 ? `
                 <span class="absolute bottom-1.5 left-1.5 px-2 py-0.5 rounded-md bg-black/75 backdrop-blur-xs text-white text-[9px] font-bold">
@@ -2691,6 +2705,10 @@ function renderVisualizadorGaleria() {
 
     const imgPrincipal = document.getElementById('galeria-imagem-principal');
     if (imgPrincipal) {
+        imgPrincipal.onerror = () => {
+            imgPrincipal.onerror = null;
+            imgPrincipal.src = 'https://placehold.co/600x400/0f172a/94a3b8?text=Imagem+Indispon%C3%ADvel';
+        };
         imgPrincipal.src = currentUrl;
     }
 
@@ -2720,7 +2738,7 @@ function renderVisualizadorGaleria() {
         miniaturasEl.innerHTML = galeria.fotos.map((url, i) => `
             <button type="button" onclick="irParaFotoGaleria(${i})" 
                     class="w-12 h-12 rounded-xl overflow-hidden shrink-0 border-2 transition-all ${i === curIdx ? 'border-amber-500 scale-105 shadow-md ring-2 ring-amber-400/40' : 'border-slate-200 opacity-60 hover:opacity-100'}">
-                <img src="${url}" alt="Miniatura ${i + 1}" class="w-full h-full object-cover">
+                <img src="${url}" alt="Miniatura ${i + 1}" class="w-full h-full object-cover" onerror="this.onerror=null; this.src='https://placehold.co/48x48/f1f5f9/94a3b8?text=Foto';">
             </button>
         `).join('');
     }

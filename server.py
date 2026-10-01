@@ -108,6 +108,8 @@ def upload_to_supabase_storage(file_bytes, filename, content_type='image/jpeg'):
     url, key = get_supabase_headers()
     if not url or not key:
         return None
+    if not file_bytes:
+        return None
     import urllib.request, ssl
     ctx = ssl.create_default_context()
     endpoint = f"{url}/storage/v1/object/produtos/{filename}"
@@ -115,6 +117,7 @@ def upload_to_supabase_storage(file_bytes, filename, content_type='image/jpeg'):
         'Authorization': f'Bearer {key}',
         'apikey': key,
         'Content-Type': content_type,
+        'Content-Length': str(len(file_bytes)),
         'x-upsert': 'true'
     }
     req = urllib.request.Request(endpoint, data=file_bytes, headers=headers, method='POST')
@@ -1371,11 +1374,18 @@ class AppleStoreHandler(http.server.SimpleHTTPRequestHandler):
             # Upload de Foto para Supabase Storage (com backup local)
             if path == '/api/upload-foto':
                 filename_orig = data.get('filename', 'foto.jpg')
-                base64_str = data.get('data', '')
+                base64_raw = data.get('image_base64') or data.get('data') or data.get('base64') or ''
                 mime_type = data.get('mime_type', 'image/jpeg')
 
-                if ',' in base64_str:
-                    base64_str = base64_str.split(',', 1)[1]
+                if ',' in base64_raw:
+                    header, base64_str = base64_raw.split(',', 1)
+                    if 'data:' in header and ';base64' in header:
+                        try:
+                            mime_type = header.split('data:', 1)[1].split(';base64', 1)[0].strip()
+                        except Exception:
+                            mime_type = 'image/jpeg'
+                else:
+                    base64_str = base64_raw
 
                 import base64
                 try:
@@ -1384,9 +1394,16 @@ class AppleStoreHandler(http.server.SimpleHTTPRequestHandler):
                     self.send_json({'error': f'Falha ao decodificar imagem: {be}'}, 400)
                     return
 
+                if not file_bytes or len(file_bytes) == 0:
+                    self.send_json({'error': 'Arquivo de imagem recebido está vazio.'}, 400)
+                    return
+
                 ext = os.path.splitext(filename_orig)[1].lower()
                 if not ext or ext not in ('.jpg', '.jpeg', '.png', '.webp', '.heic', '.gif'):
-                    ext = '.jpg'
+                    if 'png' in mime_type: ext = '.png'
+                    elif 'webp' in mime_type: ext = '.webp'
+                    elif 'gif' in mime_type: ext = '.gif'
+                    else: ext = '.jpg'
 
                 unique_name = f"disp_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{str(uuid.uuid4())[:8]}{ext}"
 
