@@ -27,6 +27,7 @@ const AppState = {
     termoBuscaModelos: '',
     fotosCadastro: [],
     galeriaAtiva: null,
+    zapConversaAtiva: null,
     supabaseClient: null
 };
 
@@ -918,8 +919,8 @@ function renderCRM() {
                 ${l.notas ? `<p class="text-[11px] text-slate-500 bg-slate-50 p-2 rounded-xl italic">${l.notas}</p>` : ''}
                 
                 <div class="pt-2 border-t border-slate-100 flex items-center justify-between">
-                    <button onclick="enviarWhatsAppLead('${l.telefone_whatsapp}', '${(l.cliente_nome || '').replace(/'/g, "\\'")}', '${(l.dispositivo_interesse_modelo || '').replace(/'/g, "\\'")}')" 
-                            class="text-emerald-600 font-bold hover:underline flex items-center gap-1">
+                    <button onclick="abrirModalConversaWhatsAppCRM('${l.id}')" 
+                            class="text-emerald-600 font-bold hover:underline flex items-center gap-1.5 transition-colors">
                         <i class="fa-brands fa-whatsapp text-sm"></i> Conversar
                     </button>
                     <div class="flex items-center gap-1">
@@ -2038,6 +2039,14 @@ function enviarWhatsAppUpgrade(telefone, nome, aparelho) {
 }
 
 function enviarWhatsAppLead(telefone, nome, interesse) {
+    const lead = AppState.crmLeads.find(l => 
+        (l.telefone_whatsapp && limparTelefone(l.telefone_whatsapp) === limparTelefone(telefone)) || 
+        (l.cliente_nome && l.cliente_nome.toLowerCase().trim() === (nome || '').toLowerCase().trim())
+    );
+    if (lead) {
+        abrirModalConversaWhatsAppCRM(lead.id);
+        return;
+    }
     const msg = `Olá, *${nome}*! Tudo bem? 🦁 Aqui é da *iLion Apple Specialist*. Vi que você tem interesse no *${interesse || 'iPhone'}*. Como posso te ajudar hoje?`;
     window.open(`https://wa.me/${limparTelefone(telefone)}?text=${encodeURIComponent(msg)}`, '_blank');
 }
@@ -2760,6 +2769,323 @@ function irParaFotoGaleria(index) {
         galeria.index = index;
         renderVisualizadorGaleria();
     }
+}
+
+// ==============================================================================
+// CONVERSA DO WHATSAPP COM SELEÇÃO DE PRODUTO & ENVIO DE FOTOS (CRM)
+// ==============================================================================
+
+function abrirModalConversaWhatsAppCRM(leadId) {
+    const lead = AppState.crmLeads.find(l => l.id === leadId);
+    if (!lead) {
+        alert("Negociação não encontrada.");
+        return;
+    }
+
+    AppState.zapConversaAtiva = {
+        leadId: lead.id,
+        clienteNome: lead.cliente_nome || 'Cliente',
+        telefone: lead.telefone_whatsapp || '',
+        interesse: lead.dispositivo_interesse_modelo || '',
+        dispositivoId: null,
+        fotosSelecionadas: []
+    };
+
+    // Atualiza cabeçalho do modal
+    const nomeEl = document.getElementById('zap-cliente-nome');
+    if (nomeEl) nomeEl.innerText = `Conversar com ${lead.cliente_nome || 'Cliente'}`;
+
+    const subEl = document.getElementById('zap-cliente-sub');
+    if (subEl) {
+        const telFormatado = formatarTelefoneVisual(lead.telefone_whatsapp);
+        subEl.innerText = `WhatsApp: ${telFormatado} • Interesse: ${lead.dispositivo_interesse_modelo || 'iPhone'}`;
+    }
+
+    // Popula o seletor de aparelhos do estoque
+    const select = document.getElementById('zap-select-aparelho');
+    if (select) {
+        let html = `<option value="">Nenhum produto específico (apenas mensagem de texto)</option>`;
+
+        const emEstoque = AppState.dispositivos.filter(d => d.status === 'Em Estoque');
+        const interesseTermo = (lead.dispositivo_interesse_modelo || '').toLowerCase().trim();
+
+        let idMelhorMatch = null;
+
+        if (emEstoque.length > 0) {
+            html += `<optgroup label="Aparelhos à Pronta Entrega no Estoque">`;
+            emEstoque.forEach(d => {
+                let fotos = d.fotos;
+                if (typeof fotos === 'string') {
+                    try { fotos = JSON.parse(fotos); } catch (e) { fotos = []; }
+                }
+                fotos = Array.isArray(fotos) ? fotos : [];
+                const qtdFotos = fotos.length;
+                const temFotos = qtdFotos > 0;
+
+                const modLower = (d.modelo || '').toLowerCase();
+                const isMatch = interesseTermo && (modLower.includes(interesseTermo) || interesseTermo.includes(modLower));
+
+                if (isMatch && !idMelhorMatch) {
+                    idMelhorMatch = d.id;
+                }
+
+                html += `<option value="${d.id}">
+                    ${d.modelo} (${d.capacidade || ''} • ${d.cor || ''}) - ${formatMoeda(d.preco_sugerido)}${temFotos ? ` 📸 (${qtdFotos} foto${qtdFotos > 1 ? 's' : ''})` : ''}
+                </option>`;
+            });
+            html += `</optgroup>`;
+        }
+
+        // Outros aparelhos no sistema
+        const outros = AppState.dispositivos.filter(d => d.status !== 'Em Estoque');
+        if (outros.length > 0) {
+            html += `<optgroup label="Outros Aparelhos no Estoque">`;
+            outros.forEach(d => {
+                let fotos = d.fotos;
+                if (typeof fotos === 'string') {
+                    try { fotos = JSON.parse(fotos); } catch (e) { fotos = []; }
+                }
+                fotos = Array.isArray(fotos) ? fotos : [];
+                const qtdFotos = fotos.length;
+                const temFotos = qtdFotos > 0;
+
+                html += `<option value="${d.id}">
+                    ${d.modelo} (${d.capacidade || ''} • ${d.cor || ''}) [${d.status}]${temFotos ? ` 📸 (${qtdFotos} foto${qtdFotos > 1 ? 's' : ''})` : ''}
+                </option>`;
+            });
+            html += `</optgroup>`;
+        }
+
+        select.innerHTML = html;
+
+        // Se houver aparelho do modelo que o cliente quer, seleciona automaticamente!
+        if (idMelhorMatch) {
+            select.value = idMelhorMatch;
+        } else if (emEstoque.length > 0) {
+            // Prioriza o primeiro aparelho que tenha fotos reais
+            const primeiroComFotos = emEstoque.find(d => {
+                let f = d.fotos;
+                if (typeof f === 'string') { try { f = JSON.parse(f); } catch (e) { f = []; } }
+                return Array.isArray(f) && f.length > 0;
+            });
+            if (primeiroComFotos) {
+                select.value = primeiroComFotos.id;
+            }
+        }
+    }
+
+    aoMudarAparelhoConversaZap();
+    openModal('modal-zap-crm');
+}
+
+function aoMudarAparelhoConversaZap() {
+    const ctx = AppState.zapConversaAtiva;
+    if (!ctx) return;
+
+    const select = document.getElementById('zap-select-aparelho');
+    const dispId = select ? select.value : '';
+    ctx.dispositivoId = dispId;
+
+    const secaoFotos = document.getElementById('zap-secao-fotos');
+    const badgeFotos = document.getElementById('zap-badge-fotos');
+    const gridFotos = document.getElementById('zap-grid-fotos');
+    const cardResumo = document.getElementById('zap-card-resumo');
+    const btnCopiarFoto = document.getElementById('zap-btn-copiar-foto');
+
+    if (!dispId) {
+        ctx.fotosSelecionadas = [];
+        if (secaoFotos) secaoFotos.classList.add('hidden');
+        if (badgeFotos) badgeFotos.classList.add('hidden');
+        if (cardResumo) cardResumo.classList.add('hidden');
+        if (btnCopiarFoto) btnCopiarFoto.classList.add('hidden');
+        gerarTextoMensagemZap(null);
+        return;
+    }
+
+    const disp = AppState.dispositivos.find(d => d.id === dispId);
+    if (!disp) return;
+
+    let fotos = disp.fotos;
+    if (typeof fotos === 'string') {
+        try { fotos = JSON.parse(fotos); } catch (e) { fotos = []; }
+    }
+    fotos = Array.isArray(fotos) ? fotos : [];
+    ctx.fotosSelecionadas = [...fotos];
+
+    // Resumo com especificações
+    if (cardResumo) {
+        cardResumo.classList.remove('hidden');
+        document.getElementById('zap-resumo-modelo').innerText = disp.modelo;
+        document.getElementById('zap-resumo-detalhes').innerText = `${disp.capacidade} • ${disp.cor} • Bateria: ${disp.saude_bateria || 100}% • ${disp.condicao_grau}`;
+        document.getElementById('zap-resumo-preco').innerText = formatMoeda(disp.preco_sugerido);
+    }
+
+    // Miniaturas das Fotos do Aparelho
+    if (fotos.length > 0) {
+        if (secaoFotos) secaoFotos.classList.remove('hidden');
+        if (badgeFotos) {
+            badgeFotos.classList.remove('hidden');
+            badgeFotos.innerHTML = `<i class="fa-solid fa-camera mr-0.5"></i> ${fotos.length} foto${fotos.length > 1 ? 's' : ''} disponível`;
+        }
+        if (btnCopiarFoto) btnCopiarFoto.classList.remove('hidden');
+
+        if (gridFotos) {
+            gridFotos.innerHTML = fotos.map((url, idx) => `
+                <div class="relative group rounded-xl overflow-hidden border-2 border-slate-200 bg-slate-100 aspect-square shadow-xs">
+                    <img src="${url}" alt="Foto ${idx + 1}" class="w-full h-full object-cover">
+                    
+                    <!-- Checkbox de inclusão na mensagem -->
+                    <label class="absolute top-1 left-1 bg-black/60 backdrop-blur-xs rounded px-1.5 py-0.5 flex items-center gap-1 cursor-pointer">
+                        <input type="checkbox" checked onchange="aoToggleFotoZap('${url}', this.checked)" class="accent-emerald-500 w-3 h-3 cursor-pointer">
+                        <span class="text-[9px] text-white font-bold">${idx === 0 ? 'Capa' : `#${idx + 1}`}</span>
+                    </label>
+
+                    <!-- Botão Copiar Imagem -->
+                    <button type="button" onclick="copiarFotoUrlParaClipboard('${url}')" 
+                            title="Copiar foto para colar com Cmd+V" 
+                            class="absolute bottom-1 right-1 w-6 h-6 rounded-full bg-white/90 hover:bg-emerald-600 text-slate-700 hover:text-white flex items-center justify-center text-[10px] shadow transition-colors">
+                        <i class="fa-regular fa-copy"></i>
+                    </button>
+                </div>
+            `).join('');
+        }
+    } else {
+        if (secaoFotos) secaoFotos.classList.add('hidden');
+        if (badgeFotos) badgeFotos.classList.add('hidden');
+        if (btnCopiarFoto) btnCopiarFoto.classList.add('hidden');
+        if (gridFotos) gridFotos.innerHTML = '';
+    }
+
+    gerarTextoMensagemZap(disp);
+}
+
+function aoToggleFotoZap(url, isChecked) {
+    const ctx = AppState.zapConversaAtiva;
+    if (!ctx) return;
+
+    if (isChecked) {
+        if (!ctx.fotosSelecionadas.includes(url)) ctx.fotosSelecionadas.push(url);
+    } else {
+        ctx.fotosSelecionadas = ctx.fotosSelecionadas.filter(u => u !== url);
+    }
+
+    const disp = AppState.dispositivos.find(d => d.id === ctx.dispositivoId);
+    gerarTextoMensagemZap(disp);
+}
+
+function gerarTextoMensagemZap(disp) {
+    const ctx = AppState.zapConversaAtiva;
+    if (!ctx) return;
+
+    const textarea = document.getElementById('zap-texto-mensagem');
+    if (!textarea) return;
+
+    const nome = ctx.clienteNome || 'Cliente';
+    const interesse = ctx.interesse || 'aparelho Apple';
+
+    if (!disp) {
+        textarea.value = `Olá, *${nome}*! Tudo bem? 🦁\n\nAqui é da *iLion Apple Specialist*.\nVi que você tem interesse no *${interesse}*. Como posso te ajudar hoje?`;
+        return;
+    }
+
+    const fotos = ctx.fotosSelecionadas || [];
+    let textoFotos = '';
+    if (fotos.length > 0) {
+        textoFotos = `\n\n📸 *Confira as fotos reais do aparelho em alta resolução:*\n` + fotos.map((u, i) => `${i + 1}️⃣ ${u}`).join('\n');
+    }
+
+    textarea.value = `Olá, *${nome}*! Tudo bem? 🦁\n\nAqui é da *iLion Apple Specialist*.\nSeparei para você os detalhes e fotos reais do *${disp.modelo}* que temos disponível:\n\n📱 *${disp.modelo}* (${disp.capacidade} • ${disp.cor})\n🔋 Saúde da bateria: *${disp.saude_bateria || 100}%*\n✨ Condição estética: *${disp.condicao_grau || 'Excelente'}*\n💰 Valor especial: *${formatMoeda(disp.preco_sugerido)}*${textoFotos}\n\nO aparelho está 100% testado, higienizado e à pronta entrega com garantia balcão.\nFicou com alguma dúvida ou gostaria de reservar?`;
+}
+
+async function copiarFotoUrlParaClipboard(url) {
+    try {
+        showToast("Processando foto...");
+        const response = await fetch(url);
+        const blob = await response.blob();
+        const pngBlob = await converterBlobParaPngBlob(blob);
+        await navigator.clipboard.write([
+            new ClipboardItem({ 'image/png': pngBlob })
+        ]);
+        showToast("📸 Foto copiada! Pressione Cmd+V (ou Ctrl+V) no WhatsApp para colar a imagem diretamente.");
+    } catch (err) {
+        console.warn("Falha ao copiar foto binária, copiando link:", err);
+        try {
+            await navigator.clipboard.writeText(url);
+            showToast("🔗 Link da foto copiado para a área de transferência!");
+        } catch (e) {
+            alert("Não foi possível copiar para a área de transferência.");
+        }
+    }
+}
+
+function converterBlobParaPngBlob(blob) {
+    return new Promise((resolve) => {
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.onload = () => {
+            const canvas = document.createElement('canvas');
+            canvas.width = img.width;
+            canvas.height = img.height;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0);
+            canvas.toBlob((b) => {
+                resolve(b || blob);
+            }, 'image/png');
+        };
+        img.onerror = () => resolve(blob);
+        img.src = URL.createObjectURL(blob);
+    });
+}
+
+function copiarPrimeiraFotoParaClipboard() {
+    const ctx = AppState.zapConversaAtiva;
+    if (!ctx || !ctx.fotosSelecionadas || ctx.fotosSelecionadas.length === 0) {
+        alert("O aparelho selecionado não possui fotos cadastradas.");
+        return;
+    }
+    copiarFotoUrlParaClipboard(ctx.fotosSelecionadas[0]);
+}
+
+function dispararWhatsAppComFotos() {
+    const ctx = AppState.zapConversaAtiva;
+    if (!ctx) return;
+
+    const textarea = document.getElementById('zap-texto-mensagem');
+    const msg = textarea ? textarea.value.trim() : '';
+
+    let telefone = ctx.telefone;
+    if (!telefone) {
+        telefone = prompt("Este cliente não tem telefone cadastrado. Digite o WhatsApp (com DDD):");
+        if (!telefone) return;
+        ctx.telefone = telefone;
+    }
+
+    const telLimpo = limparTelefone(telefone);
+    if (!telLimpo) {
+        alert("Número de WhatsApp inválido.");
+        return;
+    }
+
+    // Se houver fotos, copia a primeira foto para o clipboard para facilitar dar Cmd+V imediatamente
+    if (ctx.fotosSelecionadas && ctx.fotosSelecionadas.length > 0) {
+        copiarPrimeiraFotoParaClipboard();
+    }
+
+    const zapUrl = `https://wa.me/${telLimpo}?text=${encodeURIComponent(msg)}`;
+    window.open(zapUrl, '_blank');
+    closeModal('modal-zap-crm');
+}
+
+function formatarTelefoneVisual(tel) {
+    if (!tel) return 'Não informado';
+    const limpo = (tel || '').replace(/\D/g, '');
+    if (limpo.length === 11) {
+        return `(${limpo.slice(0, 2)}) ${limpo.slice(2, 7)}-${limpo.slice(7)}`;
+    }
+    if (limpo.length === 10) {
+        return `(${limpo.slice(0, 2)}) ${limpo.slice(2, 6)}-${limpo.slice(6)}`;
+    }
+    return tel;
 }
 
 

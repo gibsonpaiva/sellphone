@@ -1470,6 +1470,103 @@
         </div>
     </div>
 
+    <!-- MODAL: CONVERSAR & ENVIAR FOTOS NO WHATSAPP (CRM) -->
+    <div id="modal-zap-crm" class="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-3 sm:p-6 hidden overflow-y-auto ios-modal-backdrop backdrop-blur-md">
+        <div class="bg-white rounded-3xl w-full max-w-xl max-h-[92vh] overflow-hidden shadow-2xl flex flex-col ios-modal-sheet">
+            <!-- Cabeçalho -->
+            <div class="flex items-center justify-between p-4 sm:p-5 border-b border-slate-100 bg-slate-50/50">
+                <div class="flex items-center gap-3 overflow-hidden">
+                    <div class="w-10 h-10 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center text-lg font-bold shrink-0">
+                        <i class="fa-brands fa-whatsapp"></i>
+                    </div>
+                    <div class="overflow-hidden">
+                        <h3 id="zap-cliente-nome" class="font-black text-sm sm:text-base text-slate-900 truncate">Conversar com Cliente</h3>
+                        <p id="zap-cliente-sub" class="text-xs text-slate-500 font-medium truncate">WhatsApp &bull; Enviar Fotos do Produto</p>
+                    </div>
+                </div>
+                <button type="button" onclick="closeModal('modal-zap-crm')" class="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 hover:text-slate-800 flex items-center justify-center transition-colors">
+                    <i class="fa-solid fa-xmark text-sm"></i>
+                </button>
+            </div>
+
+            <!-- Corpo com Scroll -->
+            <div class="p-5 space-y-4 overflow-y-auto flex-1 text-xs">
+                <!-- Seletor de Aparelho do Estoque -->
+                <div>
+                    <div class="flex items-center justify-between mb-1.5">
+                        <label class="block text-[11px] font-bold text-slate-700">
+                            <i class="fa-solid fa-box mr-1 text-slate-400"></i> Selecionar Aparelho do Estoque para Apresentar:
+                        </label>
+                        <span id="zap-badge-fotos" class="text-[10px] font-bold text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full hidden">
+                            <i class="fa-solid fa-camera mr-0.5"></i> Fotos disponíveis
+                        </span>
+                    </div>
+                    <select id="zap-select-aparelho" onchange="aoMudarAparelhoConversaZap()" class="w-full text-xs font-semibold rounded-xl border border-slate-200 p-2.5 bg-slate-50 focus:bg-white focus:ring-2 focus:ring-emerald-500 outline-none transition-all">
+                        <!-- Gerado dinamicamente via JS -->
+                    </select>
+                </div>
+
+                <!-- Card de Apresentação das Fotos do Produto Selecionado -->
+                <div id="zap-secao-fotos" class="hidden p-3.5 bg-slate-50 rounded-2xl border border-slate-200 space-y-2.5">
+                    <div class="flex items-center justify-between">
+                        <span class="font-bold text-slate-800 text-[11px] flex items-center gap-1.5">
+                            <i class="fa-solid fa-images text-amber-500"></i> Fotos Reais do Aparelho (Supabase)
+                        </span>
+                        <button type="button" onclick="copiarPrimeiraFotoParaClipboard()" class="text-[11px] font-bold text-emerald-700 hover:text-emerald-800 flex items-center gap-1 hover:underline">
+                            <i class="fa-regular fa-copy"></i> Copiar Foto (Cmd+V)
+                        </button>
+                    </div>
+
+                    <!-- Grid de Miniaturas com Checkbox para escolher fotos -->
+                    <div id="zap-grid-fotos" class="grid grid-cols-4 gap-2">
+                        <!-- Gerado via JS -->
+                    </div>
+                    <p class="text-[10px] text-slate-400 leading-tight">
+                        <i class="fa-solid fa-circle-info text-blue-500 mr-0.5"></i> As fotos selecionadas são anexadas na mensagem como links em alta resolução (o WhatsApp exibe o card de imagem automaticamente).
+                    </p>
+                </div>
+
+                <!-- Detalhes do Aparelho (Bateria, Cor, Condição, Preço) -->
+                <div id="zap-card-resumo" class="hidden p-3 bg-emerald-50/70 border border-emerald-100 rounded-2xl flex items-center justify-between">
+                    <div>
+                        <span id="zap-resumo-modelo" class="font-bold text-slate-900 block text-xs">iPhone 16 Pro</span>
+                        <span id="zap-resumo-detalhes" class="text-[11px] text-slate-600 block">128GB &bull; Verde &bull; Bateria 100%</span>
+                    </div>
+                    <div class="text-right">
+                        <span class="text-[9px] uppercase font-bold text-slate-400 block">Preço de Venda</span>
+                        <span id="zap-resumo-preco" class="font-mono font-black text-emerald-700 text-sm">R$ 3.000,00</span>
+                    </div>
+                </div>
+
+                <!-- Área de Mensagem Editável -->
+                <div>
+                    <div class="flex items-center justify-between mb-1.5">
+                        <label class="block text-[11px] font-bold text-slate-700">
+                            <i class="fa-regular fa-comment-dots mr-1 text-slate-400"></i> Mensagem Personalizada do WhatsApp:
+                        </label>
+                        <span class="text-[10px] text-slate-400">Você pode editar livremente</span>
+                    </div>
+                    <textarea id="zap-texto-mensagem" rows="6" class="w-full text-xs font-mono rounded-xl border border-slate-200 p-3 bg-slate-50 focus:bg-white focus:ring-2 focus:ring-emerald-500 outline-none transition-all resize-y leading-relaxed text-slate-800"></textarea>
+                </div>
+            </div>
+
+            <!-- Rodapé / Ações -->
+            <div class="p-4 bg-slate-50 border-t border-slate-100 flex items-center justify-between gap-3">
+                <button type="button" onclick="closeModal('modal-zap-crm')" class="btn-pill-secondary text-xs py-2.5 px-4">
+                    Cancelar
+                </button>
+                <div class="flex items-center gap-2">
+                    <button type="button" id="zap-btn-copiar-foto" onclick="copiarPrimeiraFotoParaClipboard()" class="btn-pill-secondary text-xs py-2.5 px-3 flex items-center gap-1.5 hidden" title="Copia a imagem para você colar diretamente na janela do WhatsApp">
+                        <i class="fa-regular fa-copy"></i> Copiar Foto (Cmd+V)
+                    </button>
+                    <button type="button" onclick="dispararWhatsAppComFotos()" class="btn-pill-primary bg-emerald-600 hover:bg-emerald-500 text-white text-xs py-2.5 px-5 flex items-center gap-2 shadow-sm font-bold">
+                        <i class="fa-brands fa-whatsapp text-sm"></i> Abrir WhatsApp &bull; Enviar
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Script Principal Reativo -->
     <script src="app.js"></script>
 </body>
