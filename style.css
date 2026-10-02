@@ -403,14 +403,62 @@ tbody tr {
     transition: background-color 0.18s var(--ios-spring);
 }
 
-/* Estilo para Impressão do Recibo / Termos */
+/* Estilo para Impressão do Recibo / Termos e Relatório Consolidado */
 @media print {
+    @page {
+        margin: 1.2cm;
+        size: auto;
+    }
     body {
         background-color: #ffffff !important;
+        background: #ffffff !important;
         color: #000000 !important;
+        font-size: 11pt;
     }
-    #sidebar-container, #top-app-header, .no-print, button, .modal-backdrop {
+    #sidebar-container, #top-app-header, .no-print, button, .print\:hidden {
         display: none !important;
+    }
+    /* Ocultar modais na impressão exceto o documento oficial se estiver aberto */
+    .ios-modal-backdrop:not(#modal-documento), .modal-backdrop {
+        display: none !important;
+    }
+    #modal-documento.hidden {
+        display: none !important;
+    }
+    #modal-documento:not(.hidden) {
+        display: block !important;
+        position: static !important;
+        background: transparent !important;
+        padding: 0 !important;
+    }
+    #modal-documento:not(.hidden) .ios-modal-sheet {
+        box-shadow: none !important;
+        padding: 0 !important;
+        max-width: 100% !important;
+        border: none !important;
+        transform: none !important;
+        opacity: 1 !important;
+    }
+    main {
+        padding: 0 !important;
+        margin: 0 !important;
+        width: 100% !important;
+        max-width: 100% !important;
+    }
+    #view-consolidado:not(.hidden) {
+        display: block !important;
+        width: 100% !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        box-shadow: none !important;
+        border: none !important;
+    }
+    .bento-card {
+        box-shadow: none !important;
+        border: 1px solid #cbd5e1 !important;
+        break-inside: avoid;
+        page-break-inside: avoid;
+        margin-bottom: 1rem !important;
     }
     .printable-document {
         display: block !important;
@@ -421,3 +469,4 @@ tbody tr {
         border: none !important;
     }
 }
+

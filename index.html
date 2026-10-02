@@ -102,6 +102,12 @@
                     <span>Catálogo de Produtos</span>
                     <span id="badge-total-modelos" class="ml-auto text-[11px] px-2 py-0.5 rounded-full bg-white/10 text-slate-300 font-mono">0</span>
                 </a>
+
+                <a href="javascript:void(0)" onclick="switchTab('consolidado')" id="nav-consolidado" class="sidebar-link">
+                    <i class="fa-solid fa-chart-pie text-sm w-4 text-center"></i>
+                    <span>Consolidado</span>
+                    <span class="ml-auto text-[9px] px-1.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 font-bold">PDF</span>
+                </a>
             </div>
 
         </div>
@@ -182,6 +188,11 @@
                         <button onclick="switchTab('encomendas'); toggleMobileMenu();" class="w-full text-left py-2 px-3 rounded-xl hover:bg-white/10">Lista de Espera</button>
                         <button onclick="switchTab('posvenda'); toggleMobileMenu();" class="w-full text-left py-2 px-3 rounded-xl hover:bg-white/10">Pós-Venda</button>
                         <button onclick="switchTab('documentos'); toggleMobileMenu();" class="w-full text-left py-2 px-3 rounded-xl hover:bg-white/10">Recibos & Termos</button>
+                        <button onclick="switchTab('modelos'); toggleMobileMenu();" class="w-full text-left py-2 px-3 rounded-xl hover:bg-white/10">Catálogo de Produtos</button>
+                        <button onclick="switchTab('consolidado'); toggleMobileMenu();" class="w-full text-left py-2 px-3 rounded-xl hover:bg-white/10 flex items-center justify-between">
+                            <span>Consolidado</span>
+                            <span class="text-[9px] px-1.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 font-bold">PDF</span>
+                        </button>
                     </div>
                 </div>
             </div>
@@ -830,6 +841,288 @@
                                 <!-- Preenchido via JS -->
                             </tbody>
                         </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ==============================================================================
+                 VIEW 9: RELATÓRIO CONSOLIDADO & FECHAMENTO (COM EXPORTAÇÃO PDF)
+                 ============================================================================== -->
+            <section id="view-consolidado" class="space-y-6 hidden">
+                <!-- Barra de Controle do Período & Botão Salvar em PDF (oculta na impressão) -->
+                <div class="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 p-4 sm:p-5 bg-white rounded-3xl border border-slate-100 shadow-sm print:hidden">
+                    <div>
+                        <h3 class="font-black text-base text-slate-900 flex items-center gap-2">
+                            <i class="fa-solid fa-chart-pie text-emerald-600"></i> Período do Consolidado
+                        </h3>
+                        <p class="text-xs text-slate-400">Selecione o intervalo para auditar entradas, saídas, faturamento e lucros.</p>
+                    </div>
+
+                    <div class="flex flex-wrap items-center gap-2 w-full md:w-auto">
+                        <!-- Pílulas de Seleção Rápida -->
+                        <div class="flex flex-wrap items-center gap-1 p-1 bg-slate-100 rounded-2xl text-xs font-bold" id="consolidado-filtros-periodo">
+                            <button type="button" onclick="setConsolidadoPeriodo('mes_atual')" id="btn-periodo-mes_atual" class="pill-tab active">Este Mês</button>
+                            <button type="button" onclick="setConsolidadoPeriodo('mes_passado')" id="btn-periodo-mes_passado" class="pill-tab inactive">Mês Passado</button>
+                            <button type="button" onclick="setConsolidadoPeriodo('ultimos_30')" id="btn-periodo-ultimos_30" class="pill-tab inactive">Últimos 30 Dias</button>
+                            <button type="button" onclick="setConsolidadoPeriodo('ano')" id="btn-periodo-ano" class="pill-tab inactive">Este Ano</button>
+                            <button type="button" onclick="setConsolidadoPeriodo('todos')" id="btn-periodo-todos" class="pill-tab inactive">Tudo</button>
+                            <button type="button" onclick="setConsolidadoPeriodo('custom')" id="btn-periodo-custom" class="pill-tab inactive">Personalizado</button>
+                        </div>
+
+                        <!-- Botão de Ação: Exportar PDF -->
+                        <button type="button" onclick="imprimirConsolidadoPDF()" class="btn-pill-primary bg-[#121316] hover:bg-slate-800 text-white text-xs py-2 px-4 flex items-center gap-2 shadow-sm font-bold shrink-0">
+                            <i class="fa-solid fa-file-pdf text-rose-400 text-sm"></i> Salvar em PDF
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Seletor de Datas Personalizadas (se 'custom' for selecionado) -->
+                <div id="consolidado-custom-datas" class="hidden p-4 bg-white rounded-2xl border border-slate-200 flex flex-wrap items-center gap-3 text-xs print:hidden">
+                    <div class="flex items-center gap-2">
+                        <label class="font-bold text-slate-600">De:</label>
+                        <input type="date" id="consolidado-data-inicio" onchange="renderConsolidado()" class="p-2 border border-slate-200 rounded-xl font-mono text-xs">
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <label class="font-bold text-slate-600">Até:</label>
+                        <input type="date" id="consolidado-data-fim" onchange="renderConsolidado()" class="p-2 border border-slate-200 rounded-xl font-mono text-xs">
+                    </div>
+                    <button type="button" onclick="renderConsolidado()" class="btn-pill-primary text-xs py-2 px-3">Atualizar Relatório</button>
+                </div>
+
+                <!-- ÁREA DO RELATÓRIO CONSOLIDADO (Área que sai na impressão e tela) -->
+                <div id="area-relatorio-consolidado" class="space-y-6">
+
+                    <!-- CABEÇALHO DO RELATÓRIO TIMBRADO -->
+                    <div class="p-6 bg-white rounded-3xl border border-slate-100 shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                        <div class="flex items-center gap-3.5">
+                            <img src="leao.jpg" alt="iLion" class="w-12 h-12 rounded-2xl object-cover ring-2 ring-yellow-400/40 shadow-xs">
+                            <div>
+                                <div class="flex items-center gap-2">
+                                    <h2 class="font-black text-lg text-slate-900 tracking-tight">iLion Apple Specialist</h2>
+                                    <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">Fechamento Consolidado</span>
+                                </div>
+                                <p id="relatorio-periodo-texto" class="text-xs text-slate-500 font-medium">Carregando período...</p>
+                            </div>
+                        </div>
+                        <div class="text-left sm:text-right text-xs">
+                            <span class="text-[10px] uppercase font-bold text-slate-400 block">Emissão do Relatório</span>
+                            <span id="relatorio-data-emissao" class="font-mono font-bold text-slate-800 text-xs">Hoje</span>
+                            <span class="text-[11px] text-emerald-600 font-bold block mt-0.5">&bull; Status: Sincronizado</span>
+                        </div>
+                    </div>
+
+                    <!-- 4 BENTO CARDS PRINCIPAIS (ALTA VISIBILIDADE) -->
+                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                        <!-- 1. Faturamento Bruto -->
+                        <div class="bento-card p-5 space-y-2">
+                            <div class="flex items-center justify-between">
+                                <span class="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Faturamento Bruto</span>
+                                <div class="w-7 h-7 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center text-xs">
+                                    <i class="fa-solid fa-sack-dollar"></i>
+                                </div>
+                            </div>
+                            <div id="card-faturamento-bruto" class="font-mono text-2xl font-black text-slate-900">R$ 0,00</div>
+                            <div class="flex items-center justify-between text-[11px]">
+                                <span id="card-vendas-qtd" class="text-slate-500 font-medium">0 vendas</span>
+                                <span id="badge-comp-faturamento" class="font-bold text-slate-400">--</span>
+                            </div>
+                        </div>
+
+                        <!-- 2. Lucro Líquido Real -->
+                        <div class="bento-card p-5 space-y-2 border-emerald-200/60 bg-emerald-50/20">
+                            <div class="flex items-center justify-between">
+                                <span class="text-[11px] font-bold text-emerald-700 uppercase tracking-wider">Lucro Líquido Real</span>
+                                <div class="w-7 h-7 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center text-xs">
+                                    <i class="fa-solid fa-chart-line-up"></i>
+                                </div>
+                            </div>
+                            <div id="card-lucro-liquido" class="font-mono text-2xl font-black text-emerald-700">R$ 0,00</div>
+                            <div class="flex items-center justify-between text-[11px]">
+                                <span id="card-margem-liquida" class="text-emerald-800 font-bold">Margem: 0%</span>
+                                <span id="badge-comp-lucro" class="font-bold text-slate-400">--</span>
+                            </div>
+                        </div>
+
+                        <!-- 3. Investimento Bruto em Vendas -->
+                        <div class="bento-card p-5 space-y-2">
+                            <div class="flex items-center justify-between">
+                                <span class="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Investimento Vendido</span>
+                                <div class="w-7 h-7 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center text-xs">
+                                    <i class="fa-solid fa-hand-holding-dollar"></i>
+                                </div>
+                            </div>
+                            <div id="card-custo-mercadorias" class="font-mono text-2xl font-black text-slate-900">R$ 0,00</div>
+                            <div class="flex items-center justify-between text-[11px]">
+                                <span id="card-ticket-medio" class="text-slate-500 font-medium">Ticket: R$ 0,00</span>
+                                <span id="card-descontos" class="text-slate-400">Desc: R$ 0</span>
+                            </div>
+                        </div>
+
+                        <!-- 4. Posição Atual do Estoque (O que resta) -->
+                        <div class="bento-card p-5 space-y-2 bg-slate-50/60">
+                            <div class="flex items-center justify-between">
+                                <span class="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Estoque Ativo (Resta)</span>
+                                <div class="w-7 h-7 rounded-xl bg-slate-200 text-slate-700 flex items-center justify-center text-xs">
+                                    <i class="fa-solid fa-boxes-stacked"></i>
+                                </div>
+                            </div>
+                            <div id="card-estoque-capital" class="font-mono text-2xl font-black text-slate-900">R$ 0,00</div>
+                            <div class="flex items-center justify-between text-[11px]">
+                                <span id="card-estoque-qtd" class="text-slate-600 font-bold">0 aparelhos</span>
+                                <span id="card-lucro-projetado" class="text-emerald-600 font-bold">+R$ 0 previsto</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- SEÇÃO COMPARATIVO: MÊS ATUAL VS MÊS ANTERIOR (BENCHMARK) -->
+                    <div class="bento-card p-6 space-y-4">
+                        <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 border-b border-slate-100 pb-3">
+                            <div>
+                                <h4 class="font-black text-sm text-slate-900 flex items-center gap-2">
+                                    <i class="fa-solid fa-scale-balanced text-amber-500"></i> Comparativo de Vendas: Período Atual vs Anterior
+                                </h4>
+                                <p class="text-xs text-slate-400">Evolução do faturamento, lucros e volume comercial.</p>
+                            </div>
+                            <span id="comparativo-label-periodos" class="text-[11px] font-bold text-slate-600 bg-slate-100 px-3 py-1 rounded-full">
+                                Comparando com período anterior
+                            </span>
+                        </div>
+
+                        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-1">
+                            <div class="p-3 bg-slate-50 rounded-2xl text-center space-y-1">
+                                <span class="text-[10px] font-bold uppercase text-slate-400 block">Variação Faturamento</span>
+                                <span id="comp-faturamento-pct" class="font-mono font-black text-sm block">--</span>
+                                <span id="comp-faturamento-abs" class="text-[10px] text-slate-500 font-mono block">--</span>
+                            </div>
+                            <div class="p-3 bg-slate-50 rounded-2xl text-center space-y-1">
+                                <span class="text-[10px] font-bold uppercase text-slate-400 block">Variação Lucro Líquido</span>
+                                <span id="comp-lucro-pct" class="font-mono font-black text-sm block">--</span>
+                                <span id="comp-lucro-abs" class="text-[10px] text-slate-500 font-mono block">--</span>
+                            </div>
+                            <div class="p-3 bg-slate-50 rounded-2xl text-center space-y-1">
+                                <span class="text-[10px] font-bold uppercase text-slate-400 block">Variação de Volume</span>
+                                <span id="comp-volume-pct" class="font-mono font-black text-sm block">--</span>
+                                <span id="comp-volume-abs" class="text-[10px] text-slate-500 font-mono block">--</span>
+                            </div>
+                            <div class="p-3 bg-slate-50 rounded-2xl text-center space-y-1">
+                                <span class="text-[10px] font-bold uppercase text-slate-400 block">Ticket Médio</span>
+                                <span id="comp-ticket-pct" class="font-mono font-black text-sm block">--</span>
+                                <span id="comp-ticket-abs" class="text-[10px] text-slate-500 font-mono block">--</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- SEÇÃO: FLUXO DO PERÍODO — O QUE ENTROU VS O QUE SAIU -->
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <!-- O QUE ENTROU NO PERÍODO -->
+                        <div class="bento-card p-6 space-y-4 flex flex-col justify-between">
+                            <div class="space-y-3">
+                                <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+                                    <div class="flex items-center gap-2">
+                                        <div class="w-8 h-8 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center text-xs font-bold">
+                                            <i class="fa-solid fa-arrow-down-left"></i>
+                                        </div>
+                                        <div>
+                                            <h4 class="font-black text-sm text-slate-900">O que Entrou no Estoque</h4>
+                                            <p class="text-[11px] text-slate-400">Compras de fornecedor e Trade-Ins recebidos</p>
+                                        </div>
+                                    </div>
+                                    <span id="badge-total-entradas" class="font-mono font-bold text-xs px-2.5 py-1 bg-blue-50 text-blue-700 rounded-full">
+                                        0 aparelhos
+                                    </span>
+                                </div>
+
+                                <div class="grid grid-cols-2 gap-3 text-xs">
+                                    <div class="p-3 bg-slate-50 rounded-2xl">
+                                        <span class="text-[10px] uppercase font-bold text-slate-400 block">Total Investido em Entradas</span>
+                                        <span id="entradas-total-valor" class="font-mono font-black text-slate-900 text-sm block mt-0.5">R$ 0,00</span>
+                                    </div>
+                                    <div class="p-3 bg-slate-50 rounded-2xl">
+                                        <span class="text-[10px] uppercase font-bold text-slate-400 block">Recebidos em Trade-In</span>
+                                        <span id="entradas-tradein-qtd" class="font-mono font-black text-amber-600 text-sm block mt-0.5">0 trocas</span>
+                                    </div>
+                                </div>
+
+                                <!-- Lista resumida de aparelhos que entraram -->
+                                <div>
+                                    <span class="text-[11px] font-bold text-slate-600 block mb-2">Modelos que Entraram no Período:</span>
+                                    <div id="lista-entradas-resumo" class="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+                                        <!-- Preenchido via JS -->
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- O QUE SAIU (VENDAS CONCLUÍDAS) -->
+                        <div class="bento-card p-6 space-y-4 flex flex-col justify-between">
+                            <div class="space-y-3">
+                                <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+                                    <div class="flex items-center gap-2">
+                                        <div class="w-8 h-8 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center text-xs font-bold">
+                                            <i class="fa-solid fa-arrow-up-right"></i>
+                                        </div>
+                                        <div>
+                                            <h4 class="font-black text-sm text-slate-900">O que Saiu (Vendas Concluídas)</h4>
+                                            <p class="text-[11px] text-slate-400">Aparelhos vendidos e faturamento gerado</p>
+                                        </div>
+                                    </div>
+                                    <span id="badge-total-saidas" class="font-mono font-bold text-xs px-2.5 py-1 bg-emerald-50 text-emerald-700 rounded-full">
+                                        0 vendidos
+                                    </span>
+                                </div>
+
+                                <div class="grid grid-cols-2 gap-3 text-xs">
+                                    <div class="p-3 bg-slate-50 rounded-2xl">
+                                        <span class="text-[10px] uppercase font-bold text-slate-400 block">Total Faturado</span>
+                                        <span id="saidas-total-faturamento" class="font-mono font-black text-slate-900 text-sm block mt-0.5">R$ 0,00</span>
+                                    </div>
+                                    <div class="p-3 bg-slate-50 rounded-2xl">
+                                        <span class="text-[10px] uppercase font-bold text-slate-400 block">Lucro Líquido Realizado</span>
+                                        <span id="saidas-lucro-liquido" class="font-mono font-black text-emerald-600 text-sm block mt-0.5">R$ 0,00</span>
+                                    </div>
+                                </div>
+
+                                <!-- Divisão por Formas de Pagamento -->
+                                <div>
+                                    <span class="text-[11px] font-bold text-slate-600 block mb-2">Formas de Pagamento Utilizadas:</span>
+                                    <div id="lista-formas-pagamento" class="space-y-1.5 text-xs">
+                                        <!-- Preenchido via JS -->
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- TABELA DE TRANSAÇÕES DO PERÍODO -->
+                    <div class="bento-card p-6 space-y-4">
+                        <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+                            <div>
+                                <h4 class="font-black text-sm text-slate-900">Detalhamento das Operações do Período</h4>
+                                <p class="text-xs text-slate-400">Extrato analítico de vendas e margens individuais.</p>
+                            </div>
+                            <span id="tabela-total-registros" class="text-xs font-bold text-slate-500">0 registros</span>
+                        </div>
+
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-left text-xs">
+                                <thead>
+                                    <tr class="border-b border-slate-100 text-[10px] uppercase tracking-wider text-slate-400">
+                                        <th class="py-2.5 px-3">Data</th>
+                                        <th class="py-2.5 px-3">Pedido</th>
+                                        <th class="py-2.5 px-3">Cliente</th>
+                                        <th class="py-2.5 px-3">Aparelho(s)</th>
+                                        <th class="py-2.5 px-3">Pagamento</th>
+                                        <th class="py-2.5 px-3 text-right">Venda Bruta</th>
+                                        <th class="py-2.5 px-3 text-right">Custo</th>
+                                        <th class="py-2.5 px-3 text-right font-bold text-emerald-700">Lucro Líq.</th>
+                                        <th class="py-2.5 px-3 text-right">Margem</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="tabela-consolidado-corpo" class="divide-y divide-slate-100">
+                                    <!-- Preenchido via JS -->
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
                 </div>
             </section>

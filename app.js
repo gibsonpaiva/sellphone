@@ -28,6 +28,7 @@ const AppState = {
     fotosCadastro: [],
     galeriaAtiva: null,
     zapConversaAtiva: null,
+    consolidadoPeriodo: 'mes_atual',
     supabaseClient: null
 };
 
@@ -80,11 +81,12 @@ const TabTitles = {
     encomendas: { title: "Lista de Espera & Encomendas", subtitle: "Alerta automático quando o aparelho desejado entra em estoque." },
     posvenda: { title: "Pós-Venda & Ciclo de Troca", subtitle: "Alertas de garantia balcão e lembrete anual de upgrade." },
     documentos: { title: "Recibos & Termos", subtitle: "Emissão de comprovantes oficiais e termos de cessão." },
-    modelos: { title: "Catálogo de Produtos & Modelos", subtitle: "Padronização de modelos oficiais para seleção em todo o sistema." }
+    modelos: { title: "Catálogo de Produtos & Modelos", subtitle: "Padronização de modelos oficiais para seleção em todo o sistema." },
+    consolidado: { title: "Relatório Consolidado & Fechamento", subtitle: "Auditoria analítica de entradas, saídas, lucros e comparativo mensal com exportação PDF." }
 };
 
 function switchTab(tabName) {
-    const tabs = ['dashboard', 'estoque', 'tradein', 'crm', 'encomendas', 'posvenda', 'documentos', 'modelos'];
+    const tabs = ['dashboard', 'estoque', 'tradein', 'crm', 'encomendas', 'posvenda', 'documentos', 'modelos', 'consolidado'];
     tabs.forEach(t => {
         const viewEl = document.getElementById(`view-${t}`);
         const navEl = document.getElementById(`nav-${t}`);
@@ -126,6 +128,7 @@ function switchTab(tabName) {
     if (tabName === 'posvenda') renderPosVenda();
     if (tabName === 'documentos') renderDocumentos();
     if (tabName === 'modelos') renderModelos();
+    if (tabName === 'consolidado') renderConsolidado();
 }
 
 function toggleMobileMenu() {
@@ -3122,6 +3125,428 @@ function formatarTelefoneVisual(tel) {
         return `(${limpo.slice(0, 2)}) ${limpo.slice(2, 6)}-${limpo.slice(6)}`;
     }
     return tel;
+}
+
+// ==============================================================================
+// VIEW 9: RELATÓRIO CONSOLIDADO, FECHAMENTO & EXPORTAÇÃO EM PDF
+// ==============================================================================
+
+function setConsolidadoPeriodo(periodo) {
+    AppState.consolidadoPeriodo = periodo;
+    const botoes = document.querySelectorAll('#consolidado-filtros-periodo button');
+    botoes.forEach(b => {
+        if (b.id === `btn-periodo-${periodo}`) {
+            b.className = 'pill-tab active';
+        } else {
+            b.className = 'pill-tab inactive';
+        }
+    });
+
+    const customDiv = document.getElementById('consolidado-custom-datas');
+    if (customDiv) {
+        if (periodo === 'custom') {
+            customDiv.classList.remove('hidden');
+            const inEl = document.getElementById('consolidado-data-inicio');
+            const fimEl = document.getElementById('consolidado-data-fim');
+            const hoje = new Date();
+            if (inEl && !inEl.value) {
+                const primeiroDia = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
+                inEl.value = primeiroDia.toISOString().split('T')[0];
+            }
+            if (fimEl && !fimEl.value) {
+                fimEl.value = hoje.toISOString().split('T')[0];
+            }
+        } else {
+            customDiv.classList.add('hidden');
+        }
+    }
+
+    renderConsolidado();
+}
+
+function calcularIntervaloConsolidado(tipoPeriodo) {
+    const agora = new Date();
+    let inicio, fim;
+    let compInicio, compFim;
+    let labelPeriodo = "";
+    let labelComparativo = "vs mês anterior";
+
+    if (tipoPeriodo === 'mes_atual') {
+        inicio = new Date(agora.getFullYear(), agora.getMonth(), 1, 0, 0, 0, 0);
+        fim = new Date(agora.getFullYear(), agora.getMonth() + 1, 0, 23, 59, 59, 999);
+        
+        compInicio = new Date(agora.getFullYear(), agora.getMonth() - 1, 1, 0, 0, 0, 0);
+        compFim = new Date(agora.getFullYear(), agora.getMonth(), 0, 23, 59, 59, 999);
+
+        const nomeMes = inicio.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+        labelPeriodo = `Mês Atual (${nomeMes.charAt(0).toUpperCase() + nomeMes.slice(1)})`;
+        labelComparativo = "vs mês anterior";
+    } else if (tipoPeriodo === 'mes_passado') {
+        inicio = new Date(agora.getFullYear(), agora.getMonth() - 1, 1, 0, 0, 0, 0);
+        fim = new Date(agora.getFullYear(), agora.getMonth(), 0, 23, 59, 59, 999);
+
+        compInicio = new Date(agora.getFullYear(), agora.getMonth() - 2, 1, 0, 0, 0, 0);
+        compFim = new Date(agora.getFullYear(), agora.getMonth() - 1, 0, 23, 59, 59, 999);
+
+        const nomeMes = inicio.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+        labelPeriodo = `Mês Passado (${nomeMes.charAt(0).toUpperCase() + nomeMes.slice(1)})`;
+        labelComparativo = "vs mês retrasado";
+    } else if (tipoPeriodo === 'ultimos_30') {
+        fim = new Date(agora.getTime());
+        inicio = new Date(agora.getTime() - (30 * 24 * 60 * 60 * 1000));
+
+        compFim = new Date(inicio.getTime() - 1);
+        compInicio = new Date(compFim.getTime() - (30 * 24 * 60 * 60 * 1000));
+
+        labelPeriodo = `Últimos 30 Dias (${formatData(inicio.toISOString())} a ${formatData(fim.toISOString())})`;
+        labelComparativo = "vs 30 dias anteriores";
+    } else if (tipoPeriodo === 'ano') {
+        inicio = new Date(agora.getFullYear(), 0, 1, 0, 0, 0, 0);
+        fim = new Date(agora.getFullYear(), 11, 31, 23, 59, 59, 999);
+
+        compInicio = new Date(agora.getFullYear() - 1, 0, 1, 0, 0, 0, 0);
+        compFim = new Date(agora.getFullYear() - 1, 11, 31, 23, 59, 59, 999);
+
+        labelPeriodo = `Ano ${agora.getFullYear()}`;
+        labelComparativo = `vs ano de ${agora.getFullYear() - 1}`;
+    } else if (tipoPeriodo === 'todos') {
+        inicio = new Date(2020, 0, 1);
+        fim = new Date(agora.getFullYear() + 2, 11, 31);
+        compInicio = null;
+        compFim = null;
+        labelPeriodo = "Todo o Histórico";
+        labelComparativo = "Histórico global";
+    } else if (tipoPeriodo === 'custom') {
+        const inEl = document.getElementById('consolidado-data-inicio');
+        const fimEl = document.getElementById('consolidado-data-fim');
+        const inVal = inEl && inEl.value ? inEl.value : null;
+        const fimVal = fimEl && fimEl.value ? fimEl.value : null;
+
+        if (inVal && fimVal) {
+            inicio = new Date(inVal + 'T00:00:00');
+            fim = new Date(fimVal + 'T23:59:59');
+            const diffMs = fim.getTime() - inicio.getTime();
+            compFim = new Date(inicio.getTime() - 1);
+            compInicio = new Date(compFim.getTime() - diffMs);
+            labelPeriodo = `${formatData(inVal)} até ${formatData(fimVal)}`;
+            labelComparativo = "vs período anterior equivalente";
+        } else {
+            inicio = new Date(agora.getFullYear(), agora.getMonth(), 1);
+            fim = new Date(agora.getFullYear(), agora.getMonth() + 1, 0, 23, 59, 59);
+            compInicio = new Date(agora.getFullYear(), agora.getMonth() - 1, 1);
+            compFim = new Date(agora.getFullYear(), agora.getMonth(), 0, 23, 59, 59);
+            labelPeriodo = "Período Personalizado";
+            labelComparativo = "vs período anterior";
+        }
+    }
+
+    return { inicio, fim, compInicio, compFim, labelPeriodo, labelComparativo };
+}
+
+function renderConsolidado() {
+    const tipoPeriodo = AppState.consolidadoPeriodo || 'mes_atual';
+    const { inicio, fim, compInicio, compFim, labelPeriodo, labelComparativo } = calcularIntervaloConsolidado(tipoPeriodo);
+
+    // 1. Atualizar textos do cabeçalho
+    const periodoEl = document.getElementById('relatorio-periodo-texto');
+    if (periodoEl) periodoEl.innerText = `Período Analisado: ${labelPeriodo}`;
+
+    const emissaoEl = document.getElementById('relatorio-data-emissao');
+    if (emissaoEl) {
+        const agora = new Date();
+        emissaoEl.innerText = `${formatData(agora.toISOString())} às ${agora.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`;
+    }
+
+    const compLabelEl = document.getElementById('comparativo-label-periodos');
+    if (compLabelEl) compLabelEl.innerText = `Referência: ${labelComparativo}`;
+
+    // 2. Filtrar Vendas do Período Atual
+    const pedidos = AppState.pedidos || [];
+    const vendasPeriodo = pedidos.filter(p => {
+        if (!p.data_venda) return false;
+        const d = new Date(p.data_venda);
+        return d >= inicio && d <= fim;
+    });
+
+    // 3. Cálculos Financeiros do Período Atual
+    let faturamentoBruto = 0;
+    let custoVendas = 0;
+    let lucroLiquido = 0;
+    let totalDescontos = 0;
+    const formasPagamentoMap = {};
+
+    vendasPeriodo.forEach(p => {
+        const subtotal = parseFloat(p.valor_subtotal) || 0;
+        const desc = parseFloat(p.desconto) || 0;
+        const custo = parseFloat(p.custo_total_venda) || 0;
+        const vendaEfetiva = Math.max(0, subtotal - desc);
+        const lucro = (p.lucro_bruto !== undefined && p.lucro_bruto !== null) ? parseFloat(p.lucro_bruto) : (vendaEfetiva - custo);
+
+        faturamentoBruto += vendaEfetiva;
+        custoVendas += custo;
+        lucroLiquido += lucro;
+        totalDescontos += desc;
+
+        const forma = p.forma_pagamento || 'Outro';
+        if (!formasPagamentoMap[forma]) formasPagamentoMap[forma] = { qtd: 0, total: 0 };
+        formasPagamentoMap[forma].qtd += 1;
+        formasPagamentoMap[forma].total += vendaEfetiva;
+    });
+
+    const totalVendasQtd = vendasPeriodo.length;
+    const margemLiquidaPct = faturamentoBruto > 0 ? ((lucroLiquido / faturamentoBruto) * 100).toFixed(1) : 0;
+    const ticketMedio = totalVendasQtd > 0 ? (faturamentoBruto / totalVendasQtd) : 0;
+
+    // 4. Filtrar Vendas do Período Anterior para Comparativo
+    let compFaturamento = 0;
+    let compLucro = 0;
+    let compQtd = 0;
+    let compTicket = 0;
+
+    if (compInicio && compFim) {
+        const vendasComp = pedidos.filter(p => {
+            if (!p.data_venda) return false;
+            const d = new Date(p.data_venda);
+            return d >= compInicio && d <= compFim;
+        });
+
+        compQtd = vendasComp.length;
+        vendasComp.forEach(p => {
+            const subtotal = parseFloat(p.valor_subtotal) || 0;
+            const desc = parseFloat(p.desconto) || 0;
+            const custo = parseFloat(p.custo_total_venda) || 0;
+            const vendaEfetiva = Math.max(0, subtotal - desc);
+            const lucro = (p.lucro_bruto !== undefined && p.lucro_bruto !== null) ? parseFloat(p.lucro_bruto) : (vendaEfetiva - custo);
+            compFaturamento += vendaEfetiva;
+            compLucro += lucro;
+        });
+        compTicket = compQtd > 0 ? (compFaturamento / compQtd) : 0;
+    }
+
+    // 5. Renderizar 4 Bento Cards do Topo
+    const elFat = document.getElementById('card-faturamento-bruto');
+    if (elFat) elFat.innerText = formatMoeda(faturamentoBruto);
+
+    const elQtd = document.getElementById('card-vendas-qtd');
+    if (elQtd) elQtd.innerText = `${totalVendasQtd} venda${totalVendasQtd !== 1 ? 's' : ''} concluída${totalVendasQtd !== 1 ? 's' : ''}`;
+
+    const elLuc = document.getElementById('card-lucro-liquido');
+    if (elLuc) elLuc.innerText = `+${formatMoeda(lucroLiquido)}`;
+
+    const elMarg = document.getElementById('card-margem-liquida');
+    if (elMarg) elMarg.innerText = `Margem: ${margemLiquidaPct}%`;
+
+    const elCusto = document.getElementById('card-custo-mercadorias');
+    if (elCusto) elCusto.innerText = formatMoeda(custoVendas);
+
+    const elTicket = document.getElementById('card-ticket-medio');
+    if (elTicket) elTicket.innerText = `Ticket: ${formatMoeda(ticketMedio)}`;
+
+    const elDesc = document.getElementById('card-descontos');
+    if (elDesc) elDesc.innerText = `Desc: ${formatMoeda(totalDescontos)}`;
+
+    // Posição Atual do Estoque ("O que resta")
+    const dispositivos = AppState.dispositivos || [];
+    const estoqueAtivo = dispositivos.filter(d => d.status === 'Em Estoque');
+    let estoqueCapital = 0;
+    let estoqueValorVenda = 0;
+
+    estoqueAtivo.forEach(d => {
+        const c = (parseFloat(d.custo_compra) || 0) + (parseFloat(d.custos_adicionais) || 0);
+        const v = parseFloat(d.preco_sugerido) || 0;
+        estoqueCapital += c;
+        estoqueValorVenda += v;
+    });
+    const estoqueLucroProjetado = Math.max(0, estoqueValorVenda - estoqueCapital);
+
+    const elEstCap = document.getElementById('card-estoque-capital');
+    if (elEstCap) elEstCap.innerText = formatMoeda(estoqueCapital);
+
+    const elEstQtd = document.getElementById('card-estoque-qtd');
+    if (elEstQtd) elEstQtd.innerText = `${estoqueAtivo.length} aparelho${estoqueAtivo.length !== 1 ? 's' : ''} em estoque`;
+
+    const elEstLuc = document.getElementById('card-lucro-projetado');
+    if (elEstLuc) elEstLuc.innerText = `+${formatMoeda(estoqueLucroProjetado)} previsto`;
+
+    // 6. Badges de Comparativo
+    renderBadgeVariacao('badge-comp-faturamento', faturamentoBruto, compFaturamento, labelComparativo);
+    renderBadgeVariacao('badge-comp-lucro', lucroLiquido, compLucro, labelComparativo);
+
+    // Comparativo nos cards em grade
+    renderCardComparativo('comp-faturamento-pct', 'comp-faturamento-abs', faturamentoBruto, compFaturamento, true);
+    renderCardComparativo('comp-lucro-pct', 'comp-lucro-abs', lucroLiquido, compLucro, true);
+    renderCardComparativo('comp-volume-pct', 'comp-volume-abs', totalVendasQtd, compQtd, false, 'vendas');
+    renderCardComparativo('comp-ticket-pct', 'comp-ticket-abs', ticketMedio, compTicket, true);
+
+    // 7. O que Entrou no Período
+    const entradasPeriodo = dispositivos.filter(d => {
+        const dataStr = d.data_entrada || d.created_at;
+        if (!dataStr) return false;
+        const dt = new Date(dataStr);
+        return dt >= inicio && dt <= fim;
+    });
+
+    let totalInvestidoEntradas = 0;
+    let tradeInQtd = 0;
+    const modelosEntradasMap = {};
+
+    entradasPeriodo.forEach(d => {
+        const custo = (parseFloat(d.custo_compra) || 0) + (parseFloat(d.custos_adicionais) || 0);
+        totalInvestidoEntradas += custo;
+        if ((d.origem && d.origem.includes('Trade-In')) || d.cliente_origem_id) {
+            tradeInQtd += 1;
+        }
+        const mod = d.modelo || 'Outro';
+        modelosEntradasMap[mod] = (modelosEntradasMap[mod] || 0) + 1;
+    });
+
+    const elBadgeEnt = document.getElementById('badge-total-entradas');
+    if (elBadgeEnt) elBadgeEnt.innerText = `${entradasPeriodo.length} aparelho${entradasPeriodo.length !== 1 ? 's' : ''}`;
+
+    const elEntVal = document.getElementById('entradas-total-valor');
+    if (elEntVal) elEntVal.innerText = formatMoeda(totalInvestidoEntradas);
+
+    const elEntTrade = document.getElementById('entradas-tradein-qtd');
+    if (elEntTrade) elEntTrade.innerText = `${tradeInQtd} troca${tradeInQtd !== 1 ? 's' : ''}`;
+
+    const listaEntradasEl = document.getElementById('lista-entradas-resumo');
+    if (listaEntradasEl) {
+        if (entradasPeriodo.length === 0) {
+            listaEntradasEl.innerHTML = `<p class="text-slate-400 italic text-[11px] py-2">Nenhuma nova entrada registrada neste período.</p>`;
+        } else {
+            listaEntradasEl.innerHTML = Object.entries(modelosEntradasMap).map(([modelo, qtd]) => `
+                <div class="flex items-center justify-between p-2 rounded-xl bg-white border border-slate-100 text-xs">
+                    <span class="font-bold text-slate-800">${modelo}</span>
+                    <span class="font-mono font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full text-[10px]">+${qtd} un</span>
+                </div>
+            `).join('');
+        }
+    }
+
+    // 8. O que Saiu (Vendas Concluídas)
+    const elBadgeSai = document.getElementById('badge-total-saidas');
+    if (elBadgeSai) elBadgeSai.innerText = `${totalVendasQtd} vendido${totalVendasQtd !== 1 ? 's' : ''}`;
+
+    const elSaiFat = document.getElementById('saidas-total-faturamento');
+    if (elSaiFat) elSaiFat.innerText = formatMoeda(faturamentoBruto);
+
+    const elSaiLuc = document.getElementById('saidas-lucro-liquido');
+    if (elSaiLuc) elSaiLuc.innerText = `+${formatMoeda(lucroLiquido)}`;
+
+    const listaFormasEl = document.getElementById('lista-formas-pagamento');
+    if (listaFormasEl) {
+        if (totalVendasQtd === 0) {
+            listaFormasEl.innerHTML = `<p class="text-slate-400 italic text-[11px] py-2">Nenhuma venda realizada neste período.</p>`;
+        } else {
+            listaFormasEl.innerHTML = Object.entries(formasPagamentoMap).map(([forma, data]) => {
+                const pct = faturamentoBruto > 0 ? ((data.total / faturamentoBruto) * 100).toFixed(0) : 0;
+                return `
+                    <div class="p-2 rounded-xl bg-white border border-slate-100 space-y-1">
+                        <div class="flex items-center justify-between text-xs">
+                            <span class="font-bold text-slate-800">${forma} (${data.qtd})</span>
+                            <span class="font-mono font-bold text-slate-900">${formatMoeda(data.total)} <span class="text-slate-400 text-[10px]">(${pct}%)</span></span>
+                        </div>
+                        <div class="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
+                            <div class="bg-emerald-500 h-full rounded-full" style="width: ${pct}%"></div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+    }
+
+    // 9. Tabela Sintética de Transações do Período
+    const tabelaCorpo = document.getElementById('tabela-consolidado-corpo');
+    const totalRegEl = document.getElementById('tabela-total-registros');
+    if (totalRegEl) totalRegEl.innerText = `${vendasPeriodo.length} registro${vendasPeriodo.length !== 1 ? 's' : ''}`;
+
+    if (tabelaCorpo) {
+        if (vendasPeriodo.length === 0) {
+            tabelaCorpo.innerHTML = `<tr><td colspan="9" class="p-8 text-center text-slate-400 italic">Nenhuma venda concluída no período selecionado.</td></tr>`;
+        } else {
+            tabelaCorpo.innerHTML = vendasPeriodo.map(v => {
+                const sub = parseFloat(v.valor_subtotal) || 0;
+                const desc = parseFloat(v.desconto) || 0;
+                const custo = parseFloat(v.custo_total_venda) || 0;
+                const bruto = Math.max(0, sub - desc);
+                const lucro = (v.lucro_bruto !== undefined && v.lucro_bruto !== null) ? parseFloat(v.lucro_bruto) : (bruto - custo);
+                const margem = bruto > 0 ? ((lucro / bruto) * 100).toFixed(1) : 0;
+
+                return `
+                    <tr class="hover:bg-slate-50/80 transition-colors">
+                        <td class="py-2.5 px-3 text-slate-500 font-medium whitespace-nowrap">${formatData(v.data_venda)}</td>
+                        <td class="py-2.5 px-3 font-mono font-bold text-slate-900 whitespace-nowrap">${v.numero_pedido || '--'}</td>
+                        <td class="py-2.5 px-3 font-bold text-slate-800">${v.cliente_nome || 'Cliente Balcão'}</td>
+                        <td class="py-2.5 px-3 font-medium text-slate-600 truncate max-w-[200px]" title="${v.dispositivos_descricao || ''}">${v.dispositivos_descricao || 'Aparelho'}</td>
+                        <td class="py-2.5 px-3"><span class="px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 text-[10px] font-bold">${v.forma_pagamento || 'PIX'}</span></td>
+                        <td class="py-2.5 px-3 text-right font-mono font-bold text-slate-900 whitespace-nowrap">${formatMoeda(bruto)}</td>
+                        <td class="py-2.5 px-3 text-right font-mono text-slate-500 whitespace-nowrap">${formatMoeda(custo)}</td>
+                        <td class="py-2.5 px-3 text-right font-mono font-black text-emerald-600 whitespace-nowrap">+${formatMoeda(lucro)}</td>
+                        <td class="py-2.5 px-3 text-right font-bold text-slate-700 whitespace-nowrap">${margem}%</td>
+                    </tr>
+                `;
+            }).join('');
+        }
+    }
+}
+
+function renderBadgeVariacao(elementId, valorAtual, valorComp, labelComp) {
+    const el = document.getElementById(elementId);
+    if (!el) return;
+
+    if (!valorComp || valorComp === 0) {
+        el.className = 'font-bold text-slate-400';
+        el.innerText = valorAtual > 0 ? '+100% vs período anterior' : `--`;
+        return;
+    }
+
+    const diff = valorAtual - valorComp;
+    const pct = ((diff / valorComp) * 100).toFixed(1);
+
+    if (diff > 0) {
+        el.className = 'font-bold text-emerald-600 flex items-center gap-0.5';
+        el.innerHTML = `<i class="fa-solid fa-arrow-trend-up text-[10px]"></i> +${pct}% ${labelComp}`;
+    } else if (diff < 0) {
+        el.className = 'font-bold text-rose-500 flex items-center gap-0.5';
+        el.innerHTML = `<i class="fa-solid fa-arrow-trend-down text-[10px]"></i> ${pct}% ${labelComp}`;
+    } else {
+        el.className = 'font-bold text-slate-400';
+        el.innerText = `0% ${labelComp}`;
+    }
+}
+
+function renderCardComparativo(elPctId, elAbsId, valorAtual, valorComp, isMoeda = true, unidade = '') {
+    const pctEl = document.getElementById(elPctId);
+    const absEl = document.getElementById(elAbsId);
+    if (!pctEl || !absEl) return;
+
+    if (valorComp === undefined || valorComp === null || valorComp === 0) {
+        pctEl.className = 'font-mono font-black text-sm block text-slate-700';
+        pctEl.innerText = valorAtual > 0 ? '+100%' : '0%';
+        absEl.innerText = isMoeda ? `Atual: ${formatMoeda(valorAtual)}` : `Atual: ${valorAtual} ${unidade}`;
+        return;
+    }
+
+    const diff = valorAtual - valorComp;
+    const pct = ((diff / valorComp) * 100).toFixed(1);
+
+    if (diff > 0) {
+        pctEl.className = 'font-mono font-black text-sm block text-emerald-600';
+        pctEl.innerText = `+${pct}% ▲`;
+        absEl.innerText = isMoeda ? `+${formatMoeda(diff)} a mais` : `+${diff} ${unidade} a mais`;
+    } else if (diff < 0) {
+        pctEl.className = 'font-mono font-black text-sm block text-rose-500';
+        pctEl.innerText = `${pct}% ▼`;
+        absEl.innerText = isMoeda ? `${formatMoeda(diff)} a menos` : `${diff} ${unidade} a menos`;
+    } else {
+        pctEl.className = 'font-mono font-black text-sm block text-slate-500';
+        pctEl.innerText = `0% =`;
+        absEl.innerText = `Estável vs anterior`;
+    }
+}
+
+function imprimirConsolidadoPDF() {
+    window.print();
 }
 
 
