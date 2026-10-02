@@ -2510,7 +2510,7 @@ function initDropzoneFotos() {
         const dt = e.dataTransfer;
         const files = dt.files;
         if (files && files.length > 0) {
-            processarArquivosFotos(files);
+            processarArquivosFotos(Array.from(files));
         }
     }, false);
 }
@@ -2518,27 +2518,58 @@ function initDropzoneFotos() {
 function aoSelecionarFotos(event) {
     const files = event.target.files;
     if (files && files.length > 0) {
-        processarArquivosFotos(files);
+        processarArquivosFotos(Array.from(files));
     }
     // Permite selecionar novamente o mesmo arquivo se necessário
     event.target.value = '';
 }
 
 function comprimirImagem(file, maxDimension = 1400, quality = 0.82) {
-    return new Promise((resolve, reject) => {
-        const isImage = (file.type && file.type.startsWith('image/')) || /\.(jpe?g|png|webp|gif|heic|bmp)$/i.test(file.name || '');
-        if (!isImage) {
-            return reject(new Error('O arquivo selecionado não é uma imagem válida.'));
+    // Retorna uma Promise com garantia absoluta de término em no máximo 2 segundos
+    return new Promise((resolve) => {
+        let finalizado = false;
+
+        function terminarComSucesso(base64, filename) {
+            if (finalizado) return;
+            finalizado = true;
+            clearTimeout(timeoutId);
+            resolve({ base64, filename: filename || (file.name || 'foto.jpg') });
         }
 
-        const reader = new FileReader();
-        reader.onload = (readerEvent) => {
-            const resultData = readerEvent.target.result;
-            const img = new Image();
-            img.onload = () => {
+        function terminarComArquivoBruto() {
+            if (finalizado) return;
+            // Lê o arquivo diretamente como base64 sem passar pelo canvas
+            try {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    const res = e.target.result;
+                    terminarComSucesso(res, file.name);
+                };
+                reader.onerror = () => {
+                    finalizado = true;
+                    clearTimeout(timeoutId);
+                    resolve({ base64: '', filename: file.name });
+                };
+                reader.readAsDataURL(file);
+            } catch (err) {
+                finalizado = true;
+                clearTimeout(timeoutId);
+                resolve({ base64: '', filename: file.name });
+            }
+        }
+
+        // Timeout rígido de segurança: NUNCA deixa a tela travada em "Otimizando..."
+        const timeoutId = setTimeout(() => {
+            console.warn('Timeout na otimização de imagem. Enviando arquivo original...');
+            terminarComArquivoBruto();
+        }, 1500);
+
+        // Tentativa 1: createImageBitmap nativo do navegador (assíncrono, leve e não trava)
+        if (typeof window.createImageBitmap === 'function') {
+            createImageBitmap(file).then((bitmap) => {
                 try {
-                    let width = img.width;
-                    let height = img.height;
+                    let width = bitmap.width;
+                    let height = bitmap.height;
 
                     if (width > maxDimension || height > maxDimension) {
                         if (width > height) {
@@ -2555,27 +2586,24 @@ function comprimirImagem(file, maxDimension = 1400, quality = 0.82) {
                     canvas.height = height;
 
                     const ctx = canvas.getContext('2d');
-                    ctx.drawImage(img, 0, 0, width, height);
+                    ctx.drawImage(bitmap, 0, 0, width, height);
 
-                    // Converte para JPEG otimizado para web e nuvem
                     const base64 = canvas.toDataURL('image/jpeg', quality);
                     const safeName = (file.name || 'foto.jpg').replace(/\.[^/.]+$/, "") + ".jpg";
-                    resolve({ base64, filename: safeName });
-                } catch (canvasErr) {
-                    // Fallback caso canvas dê erro em algum formato
-                    const safeName = (file.name || 'foto.jpg').replace(/\.[^/.]+$/, "") + ".jpg";
-                    resolve({ base64: resultData, filename: safeName });
+                    if (bitmap.close) bitmap.close();
+                    terminarComSucesso(base64, safeName);
+                } catch (e) {
+                    terminarComArquivoBruto();
                 }
-            };
-            img.onerror = () => {
-                // Fallback para envio do arquivo bruto se o navegador não decodificou na tag Image
-                const safeName = (file.name || 'foto.jpg').replace(/\.[^/.]+$/, "") + ".jpg";
-                resolve({ base64: resultData, filename: safeName });
-            };
-            img.src = resultData;
-        };
-        reader.onerror = () => reject(new Error('Erro ao ler arquivo do computador.'));
-        reader.readAsDataURL(file);
+            }).catch(() => {
+                // Se createImageBitmap não puder decodificar (ex: formato HEIC no Chrome), usa o arquivo original
+                terminarComArquivoBruto();
+            });
+            return;
+        }
+
+        // Tentativa 2: Leitura direta do arquivo
+        terminarComArquivoBruto();
     });
 }
 
@@ -2590,41 +2618,49 @@ async function processarArquivosFotos(files) {
     const total = files.length;
     let enviados = 0;
 
-    for (let i = 0; i < total; i++) {
-        const file = files[i];
-        if (loadingText) loadingText.innerText = `Otimizando foto ${i + 1} de ${total}...`;
+    try {
+        for (let i = 0; i < total; i++) {
+            const file = files[i];
+            if (loadingText) loadingText.innerText = `Otimizando foto ${i + 1} de ${total}...`;
 
-        try {
-            const { base64, filename } = await comprimirImagem(file);
+            try {
+                const { base64, filename } = await comprimirImagem(file);
 
-            if (loadingText) loadingText.innerText = `Salvando foto ${i + 1} de ${total} no Supabase Storage...`;
+                if (!base64) {
+                    console.error('Imagem vazia para arquivo:', file.name);
+                    continue;
+                }
 
-            const res = await fetch('/api/upload-foto', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    filename: filename,
-                    image_base64: base64,
-                    data: base64,
-                    mime_type: 'image/jpeg'
-                })
-            });
+                if (loadingText) loadingText.innerText = `Salvando foto ${i + 1} de ${total} no Supabase Storage...`;
 
-            const data = await res.json();
-            if (data.success && data.url) {
-                AppState.fotosCadastro.push(data.url);
-                enviados++;
-                renderPreviewFotosCadastro();
-            } else {
-                alert(`Erro ao salvar foto "${file.name}": ${data.error || 'Falha no upload'}`);
+                const res = await fetch('/api/upload-foto', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        filename: filename,
+                        image_base64: base64,
+                        data: base64,
+                        mime_type: file.type || 'image/jpeg'
+                    })
+                });
+
+                const data = await res.json();
+                if (data.success && data.url) {
+                    AppState.fotosCadastro.push(data.url);
+                    enviados++;
+                    renderPreviewFotosCadastro();
+                } else {
+                    alert(`Erro ao salvar foto "${file.name}": ${data.error || 'Falha no upload'}`);
+                }
+            } catch (err) {
+                console.error('Erro no upload de foto:', err);
+                alert(`Falha ao processar "${file.name}": ${err.message}`);
             }
-        } catch (err) {
-            console.error('Erro no upload de foto:', err);
-            alert(`Falha ao processar "${file.name}": ${err.message}`);
         }
+    } finally {
+        if (loadingEl) loadingEl.classList.add('hidden');
     }
 
-    if (loadingEl) loadingEl.classList.add('hidden');
     if (enviados > 0) {
         showToast(`${enviados} foto(s) anexada(s) com sucesso!`);
     }
