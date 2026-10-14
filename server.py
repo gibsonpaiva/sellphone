@@ -133,6 +133,38 @@ def upload_to_supabase_storage(file_bytes, filename, content_type='image/jpeg'):
         sys.stderr.write(f"[Supabase Storage Upload Aviso]: {err_msg}\n")
     return None
 
+def sync_patch_supabase(table, filter_col, filter_val, data_dict):
+    """Atualiza campos parciais de registros existentes no Supabase via PATCH sem violar restrições NOT NULL."""
+    url, key = get_supabase_headers()
+    if not url or not key or not filter_val or not data_dict:
+        return
+    try:
+        import urllib.request, ssl, urllib.parse
+        ctx = ssl.create_default_context()
+        val_quoted = urllib.parse.quote(str(filter_val))
+        endpoint = f"{url}/rest/v1/{table}?{filter_col}=eq.{val_quoted}"
+        headers = {
+            'apikey': key,
+            'Authorization': f'Bearer {key}',
+            'Content-Type': 'application/json'
+        }
+        clean_data = dict(data_dict)
+        clean_data.pop(filter_col, None)
+        clean_data.pop('custo_total', None)
+        clean_data.pop('lucro_item', None)
+        body = json.dumps(clean_data).encode('utf-8')
+        req = urllib.request.Request(endpoint, data=body, headers=headers, method='PATCH')
+        with urllib.request.urlopen(req, context=ctx, timeout=5) as resp:
+            pass
+    except Exception as e:
+        err_msg = str(e)
+        if hasattr(e, 'read'):
+            try:
+                err_msg += f" - {e.read().decode('utf-8')}"
+            except Exception:
+                pass
+        sys.stderr.write(f"[Supabase Patch Aviso ({table} {filter_col}={filter_val})]: {err_msg}\n")
+
 # Mantém retrocompatibilidade com chamadas antigas
 def sync_to_supabase(table, data_dict):
     sync_upsert_supabase(table, data_dict)
@@ -326,8 +358,7 @@ def reconciliar_encomendas_atendidas(conn=None):
             conn.close()
 
     for item in atendidos:
-        sync_upsert_supabase('encomendas_desejos', {
-            'id': item['enc_id'],
+        sync_patch_supabase('encomendas_desejos', 'id', item['enc_id'], {
             'status': 'Atendido',
             'dispositivo_compativel_id': item['dispositivo_id']
         })
@@ -404,7 +435,10 @@ def recalcular_smart_matches(conn=None):
             conn = None
         if alteracoes:
             for enc_payload in alteracoes:
-                sync_upsert_supabase('encomendas_desejos', enc_payload)
+                sync_patch_supabase('encomendas_desejos', 'id', enc_payload['id'], {
+                    'status': enc_payload['status'],
+                    'dispositivo_compativel_id': enc_payload.get('dispositivo_compativel_id')
+                })
     finally:
         if close_when_done and conn:
             try:
@@ -416,8 +450,13 @@ def recalcular_smart_matches(conn=None):
 # INICIALIZAÇÃO DO BANCO DE DADOS LOCAL (SQLITE3)
 # ==============================================================================
 def get_db_connection():
-    conn = sqlite3.connect(DB_FILE, timeout=15)
-    conn.execute("PRAGMA busy_timeout = 10000;")
+    conn = sqlite3.connect(DB_FILE, timeout=30)
+    try:
+        conn.execute("PRAGMA busy_timeout = 30000;")
+        conn.execute("PRAGMA journal_mode = WAL;")
+        conn.execute("PRAGMA synchronous = NORMAL;")
+    except Exception:
+        pass
     conn.row_factory = sqlite3.Row
     return conn
 
@@ -952,16 +991,22 @@ class AppleStoreHandler(http.server.SimpleHTTPRequestHandler):
             if path == '/api/pedidos':
                 # Obter IDs dos aparelhos vendidos para restaurar no estoque
                 c.execute("SELECT dispositivo_id FROM itens_venda WHERE pedido_id = ?", (item_id,))
-                disp_ids = [r[0] for r in c.fetchall()]
+                disp_ids = [r['dispositivo_id'] if isinstance(r, sqlite3.Row) else r[0] for r in c.fetchall()]
 
                 c.execute("DELETE FROM itens_venda WHERE pedido_id = ?", (item_id,))
                 c.execute("UPDATE trocas_trade_in SET pedido_id = NULL WHERE pedido_id = ?", (item_id,))
                 c.execute("DELETE FROM pedidos_venda WHERE id = ?", (item_id,))
 
-                # Devolver aparelhos vendidos ao status 'Em Estoque' e reabrir desejos
+                # Devolver aparelhos vendidos ao status 'Em Estoque' somente se não houver outra venda ativa do mesmo aparelho
+                restaurados = []
                 for d_id in disp_ids:
-                    c.execute("UPDATE dispositivos SET status = 'Em Estoque' WHERE id = ?", (d_id,))
-                    c.execute("UPDATE encomendas_desejos SET status = 'Aguardando', dispositivo_compativel_id = NULL WHERE dispositivo_compativel_id = ? AND status = 'Atendido'", (d_id,))
+                    c.execute("SELECT count(*) as total FROM itens_venda WHERE dispositivo_id = ?", (d_id,))
+                    row_cnt = c.fetchone()
+                    total_outras = (row_cnt['total'] if isinstance(row_cnt, sqlite3.Row) else row_cnt[0])
+                    if total_outras == 0:
+                        c.execute("UPDATE dispositivos SET status = 'Em Estoque' WHERE id = ?", (d_id,))
+                        c.execute("UPDATE encomendas_desejos SET status = 'Aguardando', dispositivo_compativel_id = NULL WHERE dispositivo_compativel_id = ? AND status = 'Atendido'", (d_id,))
+                        restaurados.append(d_id)
 
                 conn.commit()
                 conn.close()
@@ -969,8 +1014,8 @@ class AppleStoreHandler(http.server.SimpleHTTPRequestHandler):
 
                 sync_delete_supabase('itens_venda', 'pedido_id', item_id)
                 sync_delete_supabase('pedidos_venda', 'id', item_id)
-                for d_id in disp_ids:
-                    sync_upsert_supabase('dispositivos', {'id': d_id, 'status': 'Em Estoque'})
+                for d_id in restaurados:
+                    sync_patch_supabase('dispositivos', 'id', d_id, {'status': 'Em Estoque'})
 
                 recalcular_smart_matches()
                 self.send_json({'success': True, 'message': 'Venda e recibo excluídos com sucesso!'})
@@ -1053,6 +1098,8 @@ class AppleStoreHandler(http.server.SimpleHTTPRequestHandler):
                     conn.rollback()
                 except Exception:
                     pass
+            import traceback
+            sys.stderr.write(f"do_DELETE error on {path}:\n{traceback.format_exc()}\n")
             self.send_json({'error': str(e)}, 500)
         finally:
             if conn:
@@ -1069,12 +1116,6 @@ class AppleStoreHandler(http.server.SimpleHTTPRequestHandler):
             except Exception as e:
                 self.send_json({'error': str(e)}, 500)
             return
-
-        if path == '/api/pedidos':
-            try:
-                sync_pull_from_supabase('pedidos_venda')
-            except Exception:
-                pass
 
         conn = get_db_connection()
         c = conn.cursor()
@@ -1611,6 +1652,10 @@ class AppleStoreHandler(http.server.SimpleHTTPRequestHandler):
                 disp_row = c.fetchone()
                 if not disp_row:
                     self.send_json({'error': 'Dispositivo selecionado não encontrado no estoque.'}, 400)
+                    return
+                
+                if disp_row['status'] != 'Em Estoque':
+                    self.send_json({'error': f"O aparelho '{disp_row['modelo']}' (IMEI/Serial: {disp_row['identificador_valor']}) já consta como vendido ou indisponível no estoque."}, 400)
                     return
                 
                 custo_aquisicao_item = float(disp_row['custo_compra'] or 0) + float(disp_row['custos_adicionais'] or 0)

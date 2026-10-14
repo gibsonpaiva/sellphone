@@ -1268,8 +1268,8 @@ function renderDocumentos() {
                     <button onclick="visualizarDocumentoPedido('${p.id}')" class="btn-pill-secondary text-xs">
                         <i class="fa-solid fa-receipt"></i> Recibo
                     </button>
-                    <button onclick="excluirPedido('${p.id}', '${p.numero_pedido}')" title="Excluir venda e recibo" class="w-8 h-8 rounded-full bg-slate-100 hover:bg-rose-50 text-slate-400 hover:text-rose-600 inline-flex items-center justify-center transition-colors">
-                        <i class="fa-regular fa-trash-can text-xs"></i>
+                    <button onclick="excluirPedido('${p.id}', '${p.numero_pedido}', this)" title="Excluir venda e recibo" class="w-8 h-8 rounded-full bg-slate-100 hover:bg-rose-50 text-slate-400 hover:text-rose-600 inline-flex items-center justify-center transition-colors">
+                        <i class="fa-solid fa-trash-can text-xs"></i>
                     </button>
                 </div>
             </td>
@@ -1277,23 +1277,45 @@ function renderDocumentos() {
     `).join('');
 }
 
-async function excluirPedido(pedidoId, numeroPedido) {
-    if (!confirm(`Deseja realmente excluir a venda ${numeroPedido || ''}? O recibo será excluído do sistema e do Supabase, e o aparelho voltará para o estoque disponível.`)) {
+async function excluirPedido(pedidoId, numeroPedido, btnEl) {
+    if (!confirm(`Deseja realmente excluir a venda ${numeroPedido || ''}?\n\nO recibo será excluído do sistema e da nuvem Supabase, e o aparelho voltará a ficar disponível no estoque.`)) {
         return;
     }
+
+    const btn = btnEl || (window.event && window.event.currentTarget);
+    let originalHtml = '';
+    if (btn) {
+        btn.disabled = true;
+        originalHtml = btn.innerHTML;
+        btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin text-xs text-rose-500"></i>';
+    }
+
     try {
         const res = await fetch(`/api/pedidos?id=${pedidoId}`, {
             method: 'DELETE'
         });
         const result = await res.json();
         if (result.success) {
-            showToast('Venda excluída e aparelho restaurado ao estoque!');
+            showToast('Venda e recibo excluídos com sucesso!');
+            // Remove instantaneamente da lista local para feedback imediato na tela
+            AppState.pedidos = (AppState.pedidos || []).filter(p => p.id !== pedidoId);
+            renderDocumentos();
+            if (typeof renderConsolidado === 'function') renderConsolidado();
+            // Recarrega todos os dados para sincronizar o estoque
             await loadAllData();
         } else {
             alert(result.error || 'Erro ao excluir venda.');
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = originalHtml;
+            }
         }
     } catch (err) {
         alert('Erro na conexão com o servidor ao excluir venda.');
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = originalHtml;
+        }
     }
 }
 
@@ -1547,6 +1569,8 @@ function calcularCheckoutVenda() {
 async function processarVendaComTradeIn(e) {
     e.preventDefault();
 
+    if (AppState.isProcessandoVenda) return;
+
     const dispId = document.getElementById('venda-dispositivo-select').value;
     const clienteId = document.getElementById('venda-cliente-select').value;
     if (!dispId || !clienteId) {
@@ -1587,6 +1611,15 @@ async function processarVendaComTradeIn(e) {
         trade_in: tradeInPayload
     };
 
+    const submitBtn = document.getElementById('btn-concluir-venda');
+    let originalBtnHtml = '';
+    if (submitBtn) {
+        submitBtn.disabled = true;
+        originalBtnHtml = submitBtn.innerHTML;
+        submitBtn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> <span>Processando Venda...</span>';
+    }
+    AppState.isProcessandoVenda = true;
+
     try {
         const res = await fetch('/api/pedidos', {
             method: 'POST',
@@ -1604,6 +1637,12 @@ async function processarVendaComTradeIn(e) {
         }
     } catch (err) {
         alert("Erro na conexão com o servidor ao processar venda.");
+    } finally {
+        AppState.isProcessandoVenda = false;
+        if (submitBtn) {
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = originalBtnHtml;
+        }
     }
 }
 
