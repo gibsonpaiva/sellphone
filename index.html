@@ -108,6 +108,12 @@
                     <span>Consolidado</span>
                     <span class="ml-auto text-[9px] px-1.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 font-bold">PDF</span>
                 </a>
+
+                <a href="javascript:void(0)" onclick="switchTab('rotas')" id="nav-rotas" class="sidebar-link">
+                    <i class="fa-solid fa-route text-sm w-4 text-center"></i>
+                    <span>Rotas & Entregas</span>
+                    <span class="ml-auto text-[9px] px-1.5 py-0.5 rounded-full bg-blue-500/20 text-blue-400 font-bold">ROTA</span>
+                </a>
             </div>
 
         </div>
@@ -198,6 +204,10 @@
                         <button onclick="switchTab('consolidado'); toggleMobileMenu();" class="w-full text-left py-2 px-3 rounded-xl hover:bg-white/10 flex items-center justify-between">
                             <span>Consolidado</span>
                             <span class="text-[9px] px-1.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 font-bold">PDF</span>
+                        </button>
+                        <button onclick="switchTab('rotas'); toggleMobileMenu();" class="w-full text-left py-2 px-3 rounded-xl hover:bg-white/10 flex items-center justify-between">
+                            <span>Rotas & Entregas</span>
+                            <span class="text-[9px] px-1.5 py-0.5 rounded-full bg-blue-500/20 text-blue-400 font-bold">ROTA</span>
                         </button>
                         <a href="apresentacao.html" target="_blank" class="w-full text-left py-2 px-3 rounded-xl hover:bg-white/10 flex items-center justify-between text-yellow-400 font-bold">
                             <span>Apresentação Comercial</span>
@@ -1137,6 +1147,244 @@
                 </div>
             </section>
 
+            <!-- ==============================================================================
+                 VIEW 10: ROTAS & ENTREGAS LOGÍSTICA (SEM MAPA VISUAL, KM & GOOGLE MAPS)
+                 ============================================================================== -->
+            <section id="view-rotas" class="space-y-6 hidden">
+                
+                <!-- BARRA DE CONFIGURAÇÃO: ENDEREÇO DE PARTIDA DA LOJA & AÇÕES GLOBAIS -->
+                <div class="bento-card p-5 sm:p-6 space-y-4">
+                    <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-2 border-b border-slate-100">
+                        <div>
+                            <div class="flex items-center gap-2">
+                                <h3 class="font-black text-base lg:text-lg text-slate-900 flex items-center gap-2">
+                                    <i class="fa-solid fa-route text-blue-600"></i> Rotas de Entrega Inteligentes
+                                </h3>
+                                <span class="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-blue-100 text-blue-800 uppercase tracking-wide">
+                                    Google Maps Direto
+                                </span>
+                                <span class="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 uppercase tracking-wide flex items-center gap-1">
+                                    <i class="fa-solid fa-bolt"></i> Rota Mais Rápida
+                                </span>
+                            </div>
+                            <p class="text-xs text-slate-500 mt-0.5">
+                                Selecione as vendas do dia, calcule a quilometragem total e abra a rota completa no Google Maps para o entregador.
+                            </p>
+                        </div>
+
+                        <!-- Botões de Ação Rápida no Topo -->
+                        <div class="flex flex-wrap items-center gap-2">
+                            <button type="button" id="btn-calcular-rota" onclick="calcularRotaEntregas()" class="btn-pill-primary bg-slate-900 hover:bg-slate-800 text-white text-xs py-2.5 px-4 flex items-center gap-2 shadow-sm font-bold">
+                                <i class="fa-solid fa-calculator text-yellow-400"></i>
+                                <span>Calcular Rota (KM & Tempo)</span>
+                            </button>
+
+                            <a id="btn-abrir-google-maps" href="javascript:void(0)" onclick="aoClicarAbrirGoogleMaps(event)" target="_blank" class="btn-pill-primary bg-emerald-600 hover:bg-emerald-500 text-white text-xs py-2.5 px-5 flex items-center gap-2 shadow-md font-bold transition-all opacity-60 cursor-not-allowed">
+                                <i class="fa-solid fa-map-location-dot text-sm"></i>
+                                <span>Abrir no Google Maps</span>
+                                <i class="fa-solid fa-arrow-up-right-from-square text-[10px]"></i>
+                            </a>
+
+                            <button type="button" onclick="imprimirRoteiroEntregas()" class="btn-pill-secondary text-xs py-2.5 px-3.5 flex items-center gap-2">
+                                <i class="fa-solid fa-print"></i>
+                                <span>Imprimir Roteiro</span>
+                            </button>
+
+                            <button type="button" onclick="abrirModalConfigGoogleMaps()" class="btn-pill-secondary text-xs py-2.5 px-3.5 flex items-center gap-1.5" title="Configurar chave do Google Maps (Opcional - $200 USD grátis/mês no Google Cloud)">
+                                <i class="fa-solid fa-key text-amber-500"></i>
+                                <span id="label-btn-google-key">Chave Google API</span>
+                            </button>
+
+                            <button type="button" id="btn-salvar-rota-bd" onclick="salvarRotaNoHistorico()" class="btn-pill-secondary text-xs py-2.5 px-3.5 flex items-center gap-2 hidden">
+                                <i class="fa-solid fa-floppy-disk text-blue-600"></i>
+                                <span>Salvar Rota</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Linha do Endereço de Saída (Origem da Loja) -->
+                    <div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 pt-1">
+                        <div class="flex items-center gap-2 text-xs font-bold text-slate-700 shrink-0">
+                            <span class="w-7 h-7 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center text-xs">
+                                <i class="fa-solid fa-store"></i>
+                            </span>
+                            <span>Ponto de Partida (Sua Loja):</span>
+                        </div>
+                        <div class="flex-1 relative">
+                            <input type="text" id="rota-endereco-origem" placeholder="Ex: Av. Afonso Pena, 1000 - Centro, Belo Horizonte - MG" 
+                                   class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-xs font-semibold text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all">
+                        </div>
+                        <button type="button" onclick="salvarOrigemPadrao()" class="btn-pill-secondary text-[11px] py-2 px-3 shrink-0" title="Salva este endereço como o ponto de partida padrão para as próximas rotas">
+                            <i class="fa-solid fa-check text-emerald-600 mr-1"></i> Salvar como Padrão
+                        </button>
+                    </div>
+                </div>
+
+                <!-- 3 BENTO CARDS DE RESUMO DA ROTA (MÉTRICAS RÁPIDAS SEM MAPA) -->
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <!-- Card 1: Total de Entregas -->
+                    <div class="bento-card p-5 space-y-2">
+                        <div class="flex items-center justify-between">
+                            <span class="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Entregas Selecionadas</span>
+                            <div class="w-8 h-8 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center text-xs font-bold">
+                                <i class="fa-solid fa-boxes-packing"></i>
+                            </div>
+                        </div>
+                        <div id="rota-card-total-paradas" class="font-mono text-2xl font-black text-slate-900">0 paradas</div>
+                        <div class="flex items-center justify-between text-[11px]">
+                            <span id="rota-card-status-label" class="text-slate-500 font-medium">Nenhum pedido marcado</span>
+                            <span class="text-blue-600 font-bold">&bull; Logística</span>
+                        </div>
+                    </div>
+
+                    <!-- Card 2: Distância Total (KM) -->
+                    <div class="bento-card p-5 space-y-2 border-blue-100 bg-blue-50/20">
+                        <div class="flex items-center justify-between">
+                            <span class="text-[11px] font-bold text-blue-700 uppercase tracking-wider">Distância Total</span>
+                            <div class="flex items-center gap-1.5">
+                                <button type="button" onclick="editarDistanciaManual()" title="Ajustar distância manualmente" class="w-6 h-6 rounded-lg bg-blue-100 hover:bg-blue-200 text-blue-700 flex items-center justify-center text-[10px] transition-colors">
+                                    <i class="fa-solid fa-pen"></i>
+                                </button>
+                                <div class="w-8 h-8 rounded-xl bg-blue-100 text-blue-700 flex items-center justify-center text-xs font-bold">
+                                    <i class="fa-solid fa-road"></i>
+                                </div>
+                            </div>
+                        </div>
+                        <div id="rota-card-distancia-km" class="font-mono text-2xl font-black text-blue-700">0.0 km</div>
+                        <div class="flex items-center justify-between text-[11px]">
+                            <span id="rota-card-metodo-calculo" class="text-slate-500 font-medium truncate max-w-[150px]">Aguardando cálculo</span>
+                            <span id="rota-card-badge-metodo" class="font-bold text-emerald-600 flex items-center gap-1">
+                                <i class="fa-solid fa-bolt"></i> Gratuito
+                            </span>
+                        </div>
+                    </div>
+
+                    <!-- Card 3: Tempo Estimado de Percurso -->
+                    <div class="bento-card p-5 space-y-2 border-emerald-100 bg-emerald-50/20">
+                        <div class="flex items-center justify-between">
+                            <span class="text-[11px] font-bold text-emerald-700 uppercase tracking-wider">Tempo Estimado de Rota</span>
+                            <div class="flex items-center gap-1.5">
+                                <button type="button" onclick="editarTempoManual()" title="Ajustar tempo manualmente" class="w-6 h-6 rounded-lg bg-emerald-100 hover:bg-emerald-200 text-emerald-700 flex items-center justify-center text-[10px] transition-colors">
+                                    <i class="fa-solid fa-pen"></i>
+                                </button>
+                                <div class="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center text-xs font-bold">
+                                    <i class="fa-solid fa-clock"></i>
+                                </div>
+                            </div>
+                        </div>
+                        <div id="rota-card-tempo-min" class="font-mono text-2xl font-black text-emerald-700">0 min</div>
+                        <div class="flex items-center justify-between text-[11px]">
+                            <span id="rota-card-tempo-sub" class="text-slate-500 font-medium">Em trânsito (veículo/moto)</span>
+                            <span class="font-bold text-slate-600">Trânsito real</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- SEÇÃO PRINCIPAL: LISTA DE VENDAS PARA DESPACHO -->
+                <div class="bento-card p-6 space-y-4">
+                    <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b border-slate-100 pb-4">
+                        <div>
+                            <h4 class="font-black text-sm lg:text-base text-slate-900 flex items-center gap-2">
+                                <i class="fa-solid fa-clipboard-list text-slate-700"></i> Pedidos de Venda para Despacho
+                            </h4>
+                            <p class="text-xs text-slate-400">Marque as entregas que farão parte desta rota. Você pode editar endereços e disparar aviso no WhatsApp.</p>
+                        </div>
+
+                        <div class="flex items-center gap-2 w-full sm:w-auto">
+                            <!-- Busca por cliente ou endereço -->
+                            <div class="relative flex-1 sm:w-64">
+                                <i class="fa-solid fa-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs"></i>
+                                <input type="text" id="filtro-rotas-busca" oninput="filtrarPedidosRotas(this.value)" placeholder="Buscar cliente, modelo ou bairro..." 
+                                       class="w-full bg-slate-50 border border-slate-200 rounded-full pl-8 pr-3 py-1.5 text-xs font-medium text-slate-800 placeholder-slate-400 focus:bg-white focus:outline-none">
+                            </div>
+
+                            <button type="button" onclick="alternarSelecaoTodosPedidosRotas()" id="btn-toggle-selecao-todos" class="btn-pill-secondary text-xs py-1.5 px-3 shrink-0">
+                                Marcar Todas
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Tabela de Pedidos Elegíveis -->
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left text-xs">
+                            <thead>
+                                <tr class="border-b border-slate-100 text-[10px] uppercase tracking-wider text-slate-400">
+                                    <th class="py-2.5 px-3 text-center w-10">
+                                        <input type="checkbox" id="chk-selecionar-todos-pedidos" onchange="aoMarcarDesmarcarTodosCheckbox(this.checked)" class="accent-slate-900 rounded cursor-pointer">
+                                    </th>
+                                    <th class="py-2.5 px-3">Data / Pedido</th>
+                                    <th class="py-2.5 px-3">Cliente Comprador</th>
+                                    <th class="py-2.5 px-3">Aparelho(s)</th>
+                                    <th class="py-2.5 px-3">Endereço de Entrega</th>
+                                    <th class="py-2.5 px-3 text-right">Ações de Entrega</th>
+                                </tr>
+                            </thead>
+                            <tbody id="tabela-rotas-pedidos-corpo" class="divide-y divide-slate-100">
+                                <!-- Preenchido dinamicamente via renderRotas() -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- SEÇÃO DO ROTEIRO EM SEQUÊNCIA (TIMELINE DE PARADAS) -->
+                <div id="secao-roteiro-sequencia" class="bento-card p-6 space-y-4">
+                    <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+                        <div class="flex items-center gap-2">
+                            <div class="w-8 h-8 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center text-xs font-bold">
+                                <i class="fa-solid fa-list-ol"></i>
+                            </div>
+                            <div>
+                                <h4 class="font-black text-sm text-slate-900">Roteiro Sequenciado de Paradas</h4>
+                                <p class="text-xs text-slate-400">Ordem em que as entregas serão realizadas. Use os botões para reordenar se preferir.</p>
+                            </div>
+                        </div>
+                        <span id="badge-sequencia-total" class="font-mono font-bold text-xs px-2.5 py-1 bg-slate-100 text-slate-700 rounded-full">
+                            0 pontos de parada
+                        </span>
+                    </div>
+
+                    <!-- Lista de Paradas Sequenciadas -->
+                    <div id="lista-paradas-sequencia" class="space-y-2.5">
+                        <!-- Preenchido via renderRoteiroSequencia() -->
+                    </div>
+                </div>
+
+                <!-- HISTÓRICO DE ROTAS ANTERIORES GERADAS -->
+                <div class="bento-card p-6 space-y-4">
+                    <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+                        <div class="flex items-center gap-2">
+                            <div class="w-8 h-8 rounded-xl bg-slate-100 text-slate-700 flex items-center justify-center text-xs font-bold">
+                                <i class="fa-solid fa-clock-rotate-left"></i>
+                            </div>
+                            <div>
+                                <h4 class="font-black text-sm text-slate-900">Histórico de Rotas Despachadas</h4>
+                                <p class="text-xs text-slate-400">Rotas anteriores sincronizadas com o banco de dados e Supabase.</p>
+                            </div>
+                        </div>
+                        <span id="historico-rotas-total" class="text-xs font-bold text-slate-500">0 rotas salvas</span>
+                    </div>
+
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left text-xs">
+                            <thead>
+                                <tr class="border-b border-slate-100 text-[10px] uppercase tracking-wider text-slate-400">
+                                    <th class="py-2.5 px-3">Data / Hora</th>
+                                    <th class="py-2.5 px-3">Origem</th>
+                                    <th class="py-2.5 px-3 text-center">Paradas</th>
+                                    <th class="py-2.5 px-3">Distância KM</th>
+                                    <th class="py-2.5 px-3">Tempo Estimado</th>
+                                    <th class="py-2.5 px-3 text-right">Ações</th>
+                                </tr>
+                            </thead>
+                            <tbody id="tabela-historico-rotas-corpo" class="divide-y divide-slate-100">
+                                <!-- Preenchido dinamicamente via renderHistoricoRotas() -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+            </section>
+
         </main>
     </div>
 
@@ -1866,6 +2114,115 @@
                         <i class="fa-brands fa-whatsapp text-sm"></i> Abrir WhatsApp &bull; Enviar
                     </button>
                 </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL: EDITAR ENDEREÇO DE ENTREGA DO CLIENTE (RÁPIDO) -->
+    <div id="modal-editar-endereco-entrega" class="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 hidden ios-modal-backdrop">
+        <div class="bg-white rounded-3xl w-full max-w-md shadow-2xl p-6 space-y-4 ios-modal-sheet">
+            <div class="flex items-center justify-between pb-3 border-b border-slate-100">
+                <div class="flex items-center gap-2">
+                    <div class="w-8 h-8 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center">
+                        <i class="fa-solid fa-location-dot"></i>
+                    </div>
+                    <div>
+                        <h3 class="font-bold text-sm text-slate-900">Atualizar Endereço de Entrega</h3>
+                        <p id="modal-end-cliente-nome" class="text-[10px] text-slate-400">Cliente...</p>
+                    </div>
+                </div>
+                <button type="button" onclick="closeModal('modal-editar-endereco-entrega')" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <form onsubmit="salvarEnderecoClienteRapido(event)" class="space-y-3 text-xs">
+                <input type="hidden" id="edit-end-cliente-id" value="">
+                <input type="hidden" id="edit-end-pedido-id" value="">
+                <div>
+                    <label class="block font-bold text-slate-700 mb-1">Endereço Completo (Rua, Número, Bairro, Cidade - UF)</label>
+                    <textarea id="edit-end-texto" rows="3" required placeholder="Ex: Rua Alagoas, 1000 - Apto 302, Savassi, Belo Horizonte - MG" class="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"></textarea>
+                    <p class="text-[10px] text-slate-400 mt-1">Quanto mais detalhado o endereço, mais preciso será o trajeto e o cálculo dos KM.</p>
+                </div>
+                <div class="pt-2 flex justify-end gap-2">
+                    <button type="button" onclick="closeModal('modal-editar-endereco-entrega')" class="btn-pill-secondary">Cancelar</button>
+                    <button type="submit" class="btn-pill-primary bg-blue-600 hover:bg-blue-500 text-white font-bold">Salvar Endereço</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- MODAL: CONFIGURAÇÃO DE CHAVE GOOGLE MAPS API (OPCIONAL) -->
+    <div id="modal-config-google-maps" class="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 hidden ios-modal-backdrop">
+        <div class="bg-white rounded-3xl w-full max-w-lg shadow-2xl p-6 lg:p-7 space-y-4 ios-modal-sheet">
+            <div class="flex items-center justify-between pb-3 border-b border-slate-100">
+                <div class="flex items-center gap-2.5">
+                    <div class="w-9 h-9 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center text-sm font-bold">
+                        <i class="fa-solid fa-key"></i>
+                    </div>
+                    <div>
+                        <h3 class="font-bold text-sm text-slate-900">Configurar Google Maps Directions API</h3>
+                        <p class="text-[10px] text-slate-400">Precisão oficial de metros e minutos em tempo real</p>
+                    </div>
+                </div>
+                <button type="button" onclick="closeModal('modal-config-google-maps')" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+
+            <!-- Card Informativo sobre os $200 USD gratuitos do Google -->
+            <div class="p-3.5 bg-emerald-50/70 border border-emerald-200/60 rounded-2xl space-y-1.5">
+                <div class="flex items-center gap-2 text-emerald-800 font-bold text-xs">
+                    <i class="fa-solid fa-gift text-emerald-600"></i>
+                    <span>$200 USD GRÁTIS todo mês no Google Cloud</span>
+                </div>
+                <p class="text-[11px] text-emerald-700 leading-relaxed">
+                    O Google oferece <strong>$200 dólares de crédito gratuito recorrente todo mês</strong>. Isso permite calcular até <strong>40.000 rotas mensais com custo zero (R$ 0,00)</strong> para sua loja.
+                </p>
+                <p class="text-[10px] text-emerald-600/90">
+                    Se você preferir não usar chave, o sistema usa automaticamente nosso <strong>motor gratuito inteligente</strong> (detecção de bairros e cálculo urbano).
+                </p>
+            </div>
+
+            <form onsubmit="salvarConfigGoogleMaps(event)" class="space-y-4 text-xs">
+                <div>
+                    <label class="block font-bold text-slate-700 mb-1">Chave de API do Google Maps (Directions API)</label>
+                    <input type="password" id="input-google-maps-key" placeholder="AIzaSy..." class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs font-mono text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500">
+                    <p class="text-[10px] text-slate-400 mt-1">Cole aqui sua chave com a <em>Directions API</em> ativada no Google Cloud Console.</p>
+                </div>
+
+                <div class="flex items-center justify-between pt-1">
+                    <button type="button" onclick="removerChaveGoogleMaps()" class="text-rose-600 hover:text-rose-700 text-xs font-medium">
+                        <i class="fa-solid fa-trash-can mr-1"></i> Remover Chave
+                    </button>
+                    <div class="flex gap-2">
+                        <button type="button" onclick="closeModal('modal-config-google-maps')" class="btn-pill-secondary">Cancelar</button>
+                        <button type="submit" class="btn-pill-primary bg-emerald-600 hover:bg-emerald-500 text-white font-bold">Salvar Chave</button>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- MODAL: IMPRESSÃO DO ROTEIRO DE ENTREGAS (MANIFESTO DO MOTOBOY) -->
+    <div id="modal-imprimir-roteiro" class="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-3 sm:p-6 hidden overflow-y-auto ios-modal-backdrop backdrop-blur-md">
+        <div class="bg-white rounded-3xl w-full max-w-3xl max-h-[92vh] overflow-y-auto shadow-2xl p-6 lg:p-8 space-y-5 ios-modal-sheet">
+            <div class="flex items-center justify-between pb-4 border-b border-slate-100 no-print">
+                <div class="flex items-center gap-2">
+                    <img src="leao.jpg" class="w-8 h-8 rounded-xl object-cover">
+                    <div>
+                        <h3 class="font-bold text-sm text-slate-900">Roteiro de Entregas &bull; Manifesto de Despacho</h3>
+                        <p class="text-[10px] text-slate-400">Guia de remessa para motoboy com comprovante de entrega</p>
+                    </div>
+                </div>
+                <div class="flex items-center gap-2">
+                    <button type="button" onclick="window.print()" class="btn-pill-primary bg-slate-900 hover:bg-slate-800 text-white text-xs py-2 px-4 flex items-center gap-1.5 font-bold">
+                        <i class="fa-solid fa-print"></i> Imprimir Folha
+                    </button>
+                    <button type="button" onclick="closeModal('modal-imprimir-roteiro')" class="text-slate-400 hover:text-slate-600 p-1">
+                        <i class="fa-solid fa-xmark text-lg"></i>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Conteúdo Imprimível do Roteiro -->
+            <div id="printable-roteiro-content" class="printable-document bg-white text-slate-900 p-4 space-y-6 text-xs leading-relaxed font-sans">
+                <!-- Preenchido via renderizarFolhaRoteiro() -->
             </div>
         </div>
     </div>

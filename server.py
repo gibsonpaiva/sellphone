@@ -86,6 +86,14 @@ def sync_upsert_supabase(table, data_dict):
         if table == 'encomendas_desejos' and 'notificado_cliente' in clean_data:
             clean_data['notificado_cliente'] = bool(clean_data['notificado_cliente'])
 
+        if table == 'rotas_entrega':
+            if 'pedidos_ids' in clean_data and isinstance(clean_data['pedidos_ids'], str):
+                try: clean_data['pedidos_ids'] = json.loads(clean_data['pedidos_ids'])
+                except Exception: clean_data['pedidos_ids'] = []
+            if 'paradas_detalhes' in clean_data and isinstance(clean_data['paradas_detalhes'], str):
+                try: clean_data['paradas_detalhes'] = json.loads(clean_data['paradas_detalhes'])
+                except Exception: clean_data['paradas_detalhes'] = []
+
         for k, v in list(clean_data.items()):
             if v == '' and ('data' in k or 'garantia_ate' in k or 'origem_id' in k or 'dispositivo_compativel_id' in k):
                 clean_data[k] = None
@@ -206,7 +214,7 @@ def sync_pull_from_supabase(target_table=None):
     elif target_table:
         tables_to_sync = [target_table]
     else:
-        tables_to_sync = ['pedidos_venda', 'itens_venda', 'trocas_trade_in', 'clientes', 'dispositivos', 'interacoes_crm', 'encomendas_desejos']
+        tables_to_sync = ['pedidos_venda', 'itens_venda', 'trocas_trade_in', 'clientes', 'dispositivos', 'interacoes_crm', 'encomendas_desejos', 'rotas_entrega']
     
     # 1. Busca dados da nuvem via HTTP sem abrir transações no SQLite
     fetched_data = {}
@@ -254,6 +262,10 @@ def sync_pull_from_supabase(target_table=None):
                         clean_row['checklist_tecnico'] = json.dumps(clean_row['checklist_tecnico'])
                     if 'fotos' in clean_row and isinstance(clean_row['fotos'], (dict, list)):
                         clean_row['fotos'] = json.dumps(clean_row['fotos'])
+                    if 'pedidos_ids' in clean_row and isinstance(clean_row['pedidos_ids'], (dict, list)):
+                        clean_row['pedidos_ids'] = json.dumps(clean_row['pedidos_ids'])
+                    if 'paradas_detalhes' in clean_row and isinstance(clean_row['paradas_detalhes'], (dict, list)):
+                        clean_row['paradas_detalhes'] = json.dumps(clean_row['paradas_detalhes'])
                     cols = list(clean_row.keys())
                     if not cols:
                         continue
@@ -445,6 +457,539 @@ def recalcular_smart_matches(conn=None):
                 conn.close()
             except Exception:
                 pass
+
+# ==============================================================================
+# MOTOR DE ROTEAMENTO LOGÍSTICO & GOOGLE MAPS (SEM MAPA VISUAL, KM & TEMPO)
+# ==============================================================================
+# ==============================================================================
+# MOTOR DE ROTEAMENTO LOGÍSTICO & GOOGLE MAPS (DUAL ENGINE: GOOGLE API & OSRM)
+# ==============================================================================
+def get_google_maps_key():
+    """Busca chave do Google Maps em config_sistema, variáveis de ambiente ou arquivo .env."""
+    key = os.environ.get('GOOGLE_MAPS_API_KEY') or os.environ.get('GOOGLE_API_KEY')
+    if key:
+        return key.strip()
+    
+    # Tenta ler do .env
+    env_file = os.path.join(BASE_DIR, ".env")
+    if os.path.exists(env_file):
+        try:
+            with open(env_file, 'r', encoding='utf-8') as f:
+                for line in f:
+                    if '=' in line and not line.strip().startswith('#'):
+                        k, v = line.strip().split('=', 1)
+                        if k.strip().upper() in ('GOOGLE_MAPS_API_KEY', 'GOOGLE_API_KEY', 'GOOGLE_MAPS_KEY'):
+                            return v.strip().strip('"').strip("'")
+        except Exception:
+            pass
+
+    # Tenta ler do banco SQLite
+    try:
+        conn = get_db_connection()
+        c = conn.cursor()
+        c.execute("SELECT valor FROM config_sistema WHERE chave = 'google_maps_key'")
+        row = c.fetchone()
+        conn.close()
+        if row and row['valor']:
+            return row['valor'].strip()
+    except Exception:
+        pass
+    return None
+
+def extrair_bairro(addr):
+    """Extrai o nome do bairro do endereço para comparações locais."""
+    if not addr: return ''
+    s = str(addr).strip()
+    if '-' in s:
+        partes = [p.strip() for p in s.split('-')]
+        for p in reversed(partes):
+            if len(p) > 2 and not p.isdigit() and not re.match(r'^[A-Z]$', p):
+                return p.split(',')[0].strip().lower()
+    partes = [p.strip() for p in s.split(',')]
+    if len(partes) >= 3:
+        return partes[-2].strip().lower()
+    return ''
+
+def extrair_cidade(addr):
+    """Tenta identificar a cidade a partir do endereço de partida."""
+    if not addr: return 'Belo Horizonte'
+    s = str(addr).lower()
+    if 'belo horizonte' in s or 'bh' in s: return 'Belo Horizonte'
+    if 'contagem' in s: return 'Contagem'
+    if 'betim' in s: return 'Betim'
+    if 'nova lima' in s: return 'Nova Lima'
+    if 'são paulo' in s or 'sao paulo' in s: return 'São Paulo'
+    if 'rio de janeiro' in s: return 'Rio de Janeiro'
+    return 'Belo Horizonte'
+
+import threading as _threading
+import time as _time
+
+_GEO_LOCK = _threading.Lock()
+_GEO_ULTIMA_CHAMADA = [0.0]
+_GEO_CACHE_MEM = {}
+_GEO_CACHE_TABELA_OK = [False]
+
+FATOR_TRANSITO_URBANO = 1.25  # OSRM não tem trânsito em tempo real; margem urbana declarada na tela
+UFS_BR = {'AC','AL','AP','AM','BA','CE','DF','ES','GO','MA','MT','MS','MG','PA','PB','PR','PE','PI','RJ','RN','RS','RO','RR','SC','SP','SE','TO'}
+TIPOS_LOGRADOURO = ('rua', 'r.', 'r ', 'av', 'avenida', 'alameda', 'al.', 'travessa', 'tv.', 'trav', 'praça', 'praca', 'pç',
+                    'rodovia', 'rod.', 'estrada', 'est.', 'beco', 'largo', 'via ', 'viela', 'anel', 'br-', 'mg-')
+COMPLEMENTOS = re.compile(r'(?i)^(apto|apartamento|ap\b|ap\.|bloco|bl\b|bl\.|sala|sl\b|fundos|casa\b|loja\b|lote|lt\b|quadra|qd\b|andar|cj\b|conjunto)')
+
+
+def _normalizar_logradouro(s):
+    s = s.strip()
+    s = re.sub(r'(?i)^r\.?\s+', 'Rua ', s)
+    s = re.sub(r'(?i)^av\.?\s+', 'Avenida ', s)
+    s = re.sub(r'(?i)^al\.?\s+', 'Alameda ', s)
+    s = re.sub(r'(?i)^tv\.?\s+', 'Travessa ', s)
+    s = re.sub(r'(?i)^p[çc]a?\.?\s+', 'Praça ', s)
+    s = re.sub(r'(?i)^rod\.?\s+', 'Rodovia ', s)
+    return s
+
+
+def decompor_endereco(raw, cidade_padrao='Belo Horizonte'):
+    """Quebra um endereço brasileiro livre em: local (POI), logradouro, número, bairro, cidade, UF, CEP."""
+    texto = str(raw or '').strip()
+    info = {'poi': '', 'logradouro': '', 'numero': '', 'bairro': '', 'cidade': '', 'uf': '', 'cep': ''}
+    m_cep = re.search(r'\b(\d{5})-?(\d{3})\b', texto)
+    if m_cep:
+        info['cep'] = f"{m_cep.group(1)}-{m_cep.group(2)}"
+        texto = texto.replace(m_cep.group(0), ' ')
+    # Separa por vírgula ou hífen cercado de espaços (preserva "486-602")
+    tokens = [t.strip() for t in re.split(r',|\s+-\s+|\s+–\s+|/', texto) if t and t.strip()]
+    pos_logradouro = -1
+    for i, t in enumerate(tokens):
+        if t.lower().startswith(TIPOS_LOGRADOURO):
+            info['logradouro'] = _normalizar_logradouro(t)
+            pos_logradouro = i
+            break
+    restantes = []
+    for i, t in enumerate(tokens):
+        if i == pos_logradouro:
+            continue
+        tl = t.lower()
+        if t.upper() in UFS_BR and len(t) == 2:
+            info['uf'] = t.upper(); continue
+        if re.match(r'^(n[º°o.]?\s*)?\d+[a-zA-Z]?(-\d+)?$', t):
+            if not info['numero']:
+                info['numero'] = re.search(r'\d+', t).group(0)
+            continue
+        if len(t) <= 1 or COMPLEMENTOS.match(t):
+            continue
+        if tl in ('brasil', 'brazil'):
+            continue
+        restantes.append((i, t))
+    for i, t in restantes:
+        if pos_logradouro >= 0 and i < pos_logradouro and not info['poi']:
+            info['poi'] = t
+        elif not info['bairro'] and (pos_logradouro < 0 or i > pos_logradouro):
+            info['bairro'] = t
+        elif not info['cidade']:
+            info['cidade'] = t
+    if not info['logradouro'] and restantes and not info['poi']:
+        # Endereço sem tipo de logradouro (ex: "ViaShopping Barreiro")
+        info['poi'] = restantes[0][1]
+        if info['bairro'] == info['poi']:
+            info['bairro'] = ''
+    if not info['cidade']:
+        info['cidade'] = cidade_padrao
+    return info
+
+
+def _garantir_tabela_cache_geo():
+    if _GEO_CACHE_TABELA_OK[0]:
+        return
+    try:
+        conn = get_db_connection()
+        conn.execute('''CREATE TABLE IF NOT EXISTS geocode_cache (
+            chave TEXT PRIMARY KEY, lat REAL, lon REAL, display_name TEXT, precisao TEXT, created_at TEXT)''')
+        conn.commit(); conn.close()
+        _GEO_CACHE_TABELA_OK[0] = True
+    except Exception as e:
+        sys.stderr.write(f"[GeoCache] {e}\n")
+
+
+def _ler_cache_geo(chave):
+    if chave in _GEO_CACHE_MEM:
+        return _GEO_CACHE_MEM[chave]
+    _garantir_tabela_cache_geo()
+    try:
+        conn = get_db_connection()
+        row = conn.execute('SELECT lat, lon, display_name, precisao FROM geocode_cache WHERE chave = ?', (chave,)).fetchone()
+        conn.close()
+        if row:
+            res = {'lat': row[0], 'lon': row[1], 'display_name': row[2], 'precisao': row[3]}
+            _GEO_CACHE_MEM[chave] = res
+            return res
+    except Exception:
+        pass
+    return None
+
+
+def _gravar_cache_geo(chave, res):
+    _GEO_CACHE_MEM[chave] = res
+    _garantir_tabela_cache_geo()
+    try:
+        conn = get_db_connection()
+        conn.execute('INSERT OR REPLACE INTO geocode_cache (chave, lat, lon, display_name, precisao, created_at) VALUES (?,?,?,?,?,?)',
+                     (chave, res['lat'], res['lon'], res.get('display_name', ''), res.get('precisao', ''), datetime.now().isoformat()))
+        conn.commit(); conn.close()
+    except Exception:
+        pass
+
+
+def _nominatim_buscar(query, viewbox=None):
+    """Consulta o Nominatim respeitando o limite oficial de 1 requisição/segundo."""
+    import urllib.request, ssl
+    params = {'q': query, 'format': 'json', 'limit': '1', 'countrycodes': 'br', 'addressdetails': '1'}
+    if viewbox:
+        params['viewbox'] = viewbox
+        params['bounded'] = '1'
+    url = "https://nominatim.openstreetmap.org/search?" + urllib.parse.urlencode(params)
+    with _GEO_LOCK:
+        espera = 1.1 - (_time.time() - _GEO_ULTIMA_CHAMADA[0])
+        if espera > 0:
+            _time.sleep(espera)
+        try:
+            req = urllib.request.Request(url, headers={'User-Agent': 'iLionStore-DeliveryCRM/3.0 (contato: suporte@ilion.store)', 'Accept-Language': 'pt-BR'})
+            with urllib.request.urlopen(req, context=ssl.create_default_context(), timeout=8) as resp:
+                data = json.loads(resp.read().decode('utf-8'))
+        except Exception as e:
+            sys.stderr.write(f"[Nominatim] Falha em '{query}': {e}\n")
+            data = None
+        finally:
+            _GEO_ULTIMA_CHAMADA[0] = _time.time()
+    return data[0] if data else None
+
+
+def _norm_nome_rua(s):
+    s = unicodedata.normalize('NFKD', str(s or '')).encode('ascii', 'ignore').decode('ascii').lower()
+    s = re.sub(r'^(rua|avenida|av|alameda|travessa|praca|rodovia|estrada|beco|largo|via)\b\.?\s*', '', s.strip())
+    s = re.sub(r'\b(de|da|do|dos|das|e)\b', ' ', s)
+    return re.sub(r'\s+', ' ', re.sub(r'[^a-z0-9 ]', ' ', s)).strip()
+
+
+def _nomes_semelhantes(a, b, minimo=0.85):
+    import difflib
+    na, nb = _norm_nome_rua(a), _norm_nome_rua(b)
+    if not na or not nb:
+        return False
+    return na == nb or difflib.SequenceMatcher(None, na, nb).ratio() >= minimo
+
+
+def _photon_buscar(query, lat=None, lon=None):
+    """Geocodificador Photon (OpenStreetMap) — tolera erros de grafia (ex: Lucchesi -> Luchesi)."""
+    import urllib.request, ssl
+    params = {'q': query, 'limit': '5', 'lang': 'default'}
+    if lat is not None:
+        params.update({'lat': f"{lat}", 'lon': f"{lon}",
+                       'bbox': f"{lon - 0.55},{lat - 0.55},{lon + 0.55},{lat + 0.55}"})
+    for base in ('https://photon.komoot.io', 'http://photon.komoot.io'):
+        try:
+            req = urllib.request.Request(base + '/api/?' + urllib.parse.urlencode(params),
+                                         headers={'User-Agent': 'iLionStore-DeliveryCRM/3.0'})
+            with urllib.request.urlopen(req, context=ssl.create_default_context(), timeout=8) as resp:
+                return json.loads(resp.read().decode('utf-8')).get('features', [])
+        except Exception as e:
+            sys.stderr.write(f"[Photon] {base}: {e}\n")
+    return []
+
+
+def _arcgis_buscar(query, ref_lat=None, ref_lon=None):
+    """Geocodificador ArcGIS (gratuito, sem chave) — precisão de número predial (PointAddress) no Brasil."""
+    import urllib.request, ssl
+    params = {
+        'SingleLine': query,
+        'countryCode': 'BRA',
+        'maxLocations': '3',
+        'outFields': 'Match_addr,Addr_type,StName,StType,AddNum,Nbrhd,City,PlaceName',
+        'f': 'json'
+    }
+    if ref_lat is not None and ref_lon is not None:
+        params['location'] = f"{ref_lon},{ref_lat}"
+        params['searchExtent'] = f"{ref_lon - 0.55},{ref_lat - 0.55},{ref_lon + 0.55},{ref_lat + 0.55}"
+    url = 'https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/findAddressCandidates?' + urllib.parse.urlencode(params)
+    try:
+        req = urllib.request.Request(url, headers={'User-Agent': 'iLionStore-DeliveryCRM/3.0'})
+        with urllib.request.urlopen(req, context=ssl.create_default_context(), timeout=8) as resp:
+            return json.loads(resp.read().decode('utf-8')).get('candidates', [])
+    except Exception as e:
+        sys.stderr.write(f"[ArcGIS] {e}\n")
+        return []
+
+
+def geocode_address(address, cidade_padrao='Belo Horizonte', viewbox=None, ref_lat=None, ref_lon=None):
+    """
+    Converte endereço em coordenadas reais. Precisão retornada: 'numero', 'local' ou 'rua'.
+    Retorna None se a rua não for encontrada — NUNCA inventa coordenadas nem usa centro de bairro.
+    """
+    if not address or len(str(address).strip()) < 3:
+        return None
+    info = decompor_endereco(address, cidade_padrao)
+    cidade_uf = ", ".join([x for x in [info['cidade'], info['uf']] if x])
+
+    # 1) ArcGIS World Geocoder (precisão de porta/número predial no Brasil, rápido e sem rate-limit de 1s)
+    partes_arc = [p for p in [
+        f"{info['logradouro']} {info['numero']}".strip() if info['logradouro'] else info['poi'],
+        info['bairro'],
+        cidade_uf,
+        info['cep']
+    ] if p]
+    if partes_arc:
+        q_arc = ", ".join(partes_arc)
+        chave_arc = f"arcgis|{q_arc.lower()}|{ref_lat}|{ref_lon}"
+        cache = _ler_cache_geo(chave_arc)
+        if cache:
+            return cache
+        for cand in _arcgis_buscar(q_arc, ref_lat, ref_lon):
+            score = cand.get('score', 0)
+            attrs = cand.get('attributes') or {}
+            atype = attrs.get('Addr_type') or ''
+            if score < 82 or atype not in ('PointAddress', 'StreetAddress', 'Subaddress', 'StreetName', 'POI'):
+                continue
+            cidade_c = attrs.get('City') or ''
+            if info['cidade'] and cidade_c and not _nomes_semelhantes(cidade_c, info['cidade'], 0.78):
+                continue
+            if info['logradouro']:
+                st_name = f"{attrs.get('StType', '')} {attrs.get('StName', '')}".strip() or cand.get('address', '')
+                if not _nomes_semelhantes(st_name, info['logradouro'], 0.78):
+                    continue
+            loc = cand.get('location') or {}
+            if 'y' in loc and 'x' in loc:
+                precisao = 'numero' if atype in ('PointAddress', 'StreetAddress', 'Subaddress') and attrs.get('AddNum') else ('local' if atype == 'POI' else 'rua')
+                res = {'lat': float(loc['y']), 'lon': float(loc['x']),
+                       'display_name': cand.get('address', q_arc), 'precisao': precisao}
+                _gravar_cache_geo(chave_arc, res)
+                return res
+
+    # 2) Nominatim (OpenStreetMap — ótimo para POIs como shoppings e nomes alternativos)
+    tentativas = []
+    if info['logradouro'] and info['numero']:
+        tentativas.append((f"{info['logradouro']} {info['numero']}, {info['bairro'] + ', ' if info['bairro'] else ''}{cidade_uf}", 'numero'))
+    if info['poi']:
+        tentativas.append((f"{info['poi']}, {cidade_uf}", 'local'))
+    if info['logradouro']:
+        if info['bairro']:
+            tentativas.append((f"{info['logradouro']}, {info['bairro']}, {cidade_uf}", 'rua'))
+        tentativas.append((f"{info['logradouro']}, {cidade_uf}", 'rua'))
+
+    for query, nivel in tentativas:
+        chave = f"{query.lower()}|{viewbox or ''}"
+        cache = _ler_cache_geo(chave)
+        if cache:
+            return cache
+        item = _nominatim_buscar(query, viewbox)
+        if not item:
+            continue
+        addr = item.get('address') or {}
+        precisao = nivel
+        if nivel == 'numero' and not addr.get('house_number'):
+            precisao = 'rua'
+        if nivel in ('numero', 'rua') and addr.get('road') and not _nomes_semelhantes(addr['road'], info['logradouro'], 0.75):
+            continue  # Nominatim devolveu outra rua — descarta
+        res = {'lat': float(item['lat']), 'lon': float(item['lon']),
+               'display_name': item.get('display_name', ''), 'precisao': precisao}
+        _gravar_cache_geo(chave, res)
+        return res
+
+    # 3) Photon (tolerante a grafia), aceitando apenas rua com nome realmente semelhante
+    if info['logradouro']:
+        query = f"{info['logradouro']} {info['numero']}, {cidade_uf}".replace('  ', ' ')
+        chave = f"photon|{query.lower()}|{ref_lat}|{ref_lon}"
+        cache = _ler_cache_geo(chave)
+        if cache:
+            return cache
+        candidatos = []
+        for f in _photon_buscar(query, ref_lat, ref_lon):
+            p = f.get('properties', {})
+            nome = p.get('street') if p.get('housenumber') else (p.get('name') or p.get('street'))
+            if not nome or not _nomes_semelhantes(nome, info['logradouro']):
+                continue
+            cidade_f = p.get('city') or p.get('county') or ''
+            if info['cidade'] and cidade_f and not _nomes_semelhantes(cidade_f, info['cidade'], 0.8):
+                continue
+            bairro_f = p.get('district') or p.get('locality') or p.get('suburb') or ''
+            pontos = 2 if (info['bairro'] and bairro_f and _nomes_semelhantes(bairro_f, info['bairro'], 0.8)) else 0
+            pontos += 1 if p.get('housenumber') else 0
+            candidatos.append((pontos, f, nome, bairro_f, cidade_f))
+        if candidatos:
+            candidatos.sort(key=lambda c: -c[0])
+            _, f, nome, bairro_f, cidade_f = candidatos[0]
+            lon, lat = f['geometry']['coordinates'][:2]
+            res = {'lat': float(lat), 'lon': float(lon),
+                   'display_name': ", ".join([x for x in [nome, bairro_f, cidade_f] if x]),
+                   'precisao': 'numero' if f['properties'].get('housenumber') else 'rua'}
+            _gravar_cache_geo(chave, res)
+            return res
+    return None
+
+
+def gerar_link_google_maps(origem, enderecos_paradas):
+    """Link universal do Google Maps (origin, waypoints, destination, driving)."""
+    import urllib.parse
+    if not enderecos_paradas:
+        return f"https://www.google.com/maps/search/?api=1&query={urllib.parse.quote(origem)}"
+    dest = enderecos_paradas[-1]
+    intermed = enderecos_paradas[:-1]
+    url = f"https://www.google.com/maps/dir/?api=1&origin={urllib.parse.quote(origem)}&destination={urllib.parse.quote(dest)}&travelmode=driving"
+    if intermed:
+        url += f"&waypoints={urllib.parse.quote('|'.join(intermed))}"
+    return url
+
+
+def calcular_rota_google_api(api_key, origem, enderecos_paradas, otimizar=True):
+    """Rota oficial Google Directions (opcional, só se houver chave configurada)."""
+    if not api_key or not enderecos_paradas:
+        return None
+    import urllib.request, ssl
+    try:
+        dest = enderecos_paradas[-1]
+        intermed = enderecos_paradas[:-1]
+        url = (f"https://maps.googleapis.com/maps/api/directions/json?origin={urllib.parse.quote(origem)}"
+               f"&destination={urllib.parse.quote(dest)}&mode=driving&departure_time=now&language=pt-BR&key={api_key}")
+        if intermed:
+            wp = ("optimize:true|" if otimizar else "") + "|".join(intermed)
+            url += f"&waypoints={urllib.parse.quote(wp)}"
+        req = urllib.request.Request(url, headers={'User-Agent': 'iLionStore-DeliveryCRM/3.0'})
+        with urllib.request.urlopen(req, context=ssl.create_default_context(), timeout=8) as resp:
+            data = json.loads(resp.read().decode('utf-8'))
+        if data.get('status') != 'OK' or not data.get('routes'):
+            sys.stderr.write(f"[Google Directions]: {data.get('status')} - {data.get('error_message')}\n")
+            return None
+        rota = data['routes'][0]
+        pernas = []
+        for leg in rota.get('legs', []):
+            dur = (leg.get('duration_in_traffic') or leg.get('duration') or {}).get('value', 0)
+            pernas.append({'metros': leg.get('distance', {}).get('value', 0), 'segundos': dur})
+        return {'pernas': pernas, 'waypoint_order': rota.get('waypoint_order', [])}
+    except Exception as e:
+        sys.stderr.write(f"[Google Directions Exceção]: {e}\n")
+        return None
+
+
+def _osrm_get(url):
+    import urllib.request
+    url = url.replace('https://router.project-osrm.org', 'http://router.project-osrm.org')
+    ultimo_erro = None
+    for tentativa_url in (url, url.replace('http://', 'https://', 1)):
+        try:
+            req = urllib.request.Request(tentativa_url, headers={'User-Agent': 'iLionStore-DeliveryCRM/3.0'})
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                return json.loads(resp.read().decode('utf-8'))
+        except Exception as e:
+            ultimo_erro = e
+    raise ultimo_erro
+
+
+def _montar_resposta(origem, origem_geo, paradas, pernas, metodo, avisos, fator_transito):
+    total_m = sum(p['metros'] for p in pernas)
+    total_s = sum(p['segundos'] for p in pernas)
+    for i, p in enumerate(paradas):
+        if i < len(pernas):
+            p['perna_km'] = round(pernas[i]['metros'] / 1000.0, 2)
+            p['perna_min'] = max(1, int(round(pernas[i]['segundos'] * fator_transito / 60.0)))
+    return {
+        'distancia_km': round(total_m / 1000.0, 2),
+        'distancia_metros': int(round(total_m)),
+        'tempo_estimado_min': max(1, int(round(total_s * fator_transito / 60.0))),
+        'tempo_sem_transito_min': max(1, int(round(total_s / 60.0))),
+        'fator_transito': fator_transito,
+        'origem_info': origem_geo,
+        'paradas': paradas,
+        'link_google_maps': gerar_link_google_maps(origem, [p['endereco'] for p in paradas]),
+        'metodo': metodo,
+        'avisos': avisos
+    }
+
+
+def calcular_rota_inteligente(origem, paradas, custom_google_key=None, otimizar=True):
+    """
+    Calcula a rota REAL pelas ruas (sem estimativas inventadas).
+    1) Google Directions API, se houver chave configurada.
+    2) OpenStreetMap (Nominatim) + OSRM: geocodifica cada endereço e traça o caminho mais rápido pelas ruas.
+    Se algum endereço não for localizado, retorna erro dizendo exatamente qual endereço corrigir.
+    """
+    paradas_proc = []
+    for p in paradas:
+        item = dict(p) if isinstance(p, dict) else {'endereco': str(p)}
+        item['endereco'] = (item.get('endereco') or '').strip()
+        if item['endereco']:
+            paradas_proc.append(item)
+    if not paradas_proc:
+        return {'error': 'Nenhum endereço de entrega informado.', '_status': 400}
+
+    # 1. Google Directions API (opcional)
+    google_key = custom_google_key or get_google_maps_key()
+    if google_key:
+        g = calcular_rota_google_api(google_key, origem, [p['endereco'] for p in paradas_proc], otimizar)
+        if g:
+            ordem = g.get('waypoint_order') or []
+            if otimizar and len(ordem) == len(paradas_proc) - 1:
+                paradas_proc = [paradas_proc[i] for i in ordem] + [paradas_proc[-1]]
+            return _montar_resposta(origem, None, paradas_proc, g['pernas'], 'google_api', [], 1.0)
+
+    # 2. OpenStreetMap + OSRM
+    cidade = extrair_cidade(origem)
+    origem_geo = geocode_address(origem, cidade)
+    if not origem_geo:
+        return {'error': f'Não foi possível localizar o PONTO DE PARTIDA: "{origem}". Informe rua, número, bairro e cidade.',
+                'enderecos_nao_encontrados': [origem], '_status': 422,
+                'link_google_maps': gerar_link_google_maps(origem, [p['endereco'] for p in paradas_proc])}
+
+    # Restringe a busca dos clientes a ~60 km da loja (evita cair em rua homônima de outra cidade)
+    lat0, lon0 = origem_geo['lat'], origem_geo['lon']
+    viewbox = f"{lon0 - 0.55},{lat0 + 0.55},{lon0 + 0.55},{lat0 - 0.55}"
+
+    nao_encontrados, avisos = [], []
+    for p in paradas_proc:
+        geo = geocode_address(p['endereco'], cidade, viewbox, ref_lat=lat0, ref_lon=lon0) or geocode_address(p['endereco'], cidade)
+        if not geo:
+            nao_encontrados.append(p['endereco']); continue
+        p['lat'], p['lon'] = geo['lat'], geo['lon']
+        p['endereco_encontrado'] = geo.get('display_name', '')
+        p['precisao'] = geo.get('precisao', 'rua')
+        if p['precisao'] == 'bairro':
+            avisos.append(f'"{p["endereco"]}": rua não encontrada no mapa, usando o centro do bairro (distância aproximada). Confira o nome da rua.')
+    if origem_geo.get('precisao') == 'bairro':
+        avisos.append('Ponto de partida localizado só pelo bairro (aproximado). Confira o nome da rua da loja.')
+
+    if nao_encontrados:
+        return {'error': 'Endereço(s) não localizado(s) no mapa: ' + ' | '.join(nao_encontrados) +
+                         '. Corrija colocando rua, número, bairro e cidade.',
+                'enderecos_nao_encontrados': nao_encontrados, '_status': 422,
+                'link_google_maps': gerar_link_google_maps(origem, [p['endereco'] for p in paradas_proc])}
+
+    # Otimiza a ordem das paradas (menor tempo total), partindo da loja
+    if otimizar and len(paradas_proc) >= 2:
+        try:
+            coords = ";".join([f"{lon0},{lat0}"] + [f"{p['lon']},{p['lat']}" for p in paradas_proc])
+            trip = _osrm_get(f"https://router.project-osrm.org/trip/v1/driving/{coords}?source=first&roundtrip=false&overview=false")
+            if trip.get('code') == 'Ok':
+                wps = trip.get('waypoints', [])[1:]  # waypoints[i] corresponde à entrada i; waypoint_index = posição na viagem
+                if len(wps) == len(paradas_proc):
+                    pares = sorted(zip([w.get('waypoint_index', 0) for w in wps], range(len(paradas_proc))))
+                    paradas_proc = [paradas_proc[i] for _, i in pares]
+        except Exception as e:
+            sys.stderr.write(f"[OSRM Trip] {e}\n")
+
+    # Rota pelas ruas, na ordem final (OSRM escolhe o caminho mais rápido entre cada ponto)
+    try:
+        coords = ";".join([f"{lon0},{lat0}"] + [f"{p['lon']},{p['lat']}" for p in paradas_proc])
+        res = _osrm_get(f"https://router.project-osrm.org/route/v1/driving/{coords}?overview=false")
+        if res.get('code') != 'Ok' or not res.get('routes'):
+            raise ValueError(res.get('message') or res.get('code'))
+        pernas = [{'metros': l.get('distance', 0), 'segundos': l.get('duration', 0)} for l in res['routes'][0].get('legs', [])]
+    except Exception as e:
+        sys.stderr.write(f"[OSRM Route] {e}\n")
+        return {'error': 'O serviço gratuito de rotas não respondeu agora. Tente calcular novamente em alguns segundos.',
+                '_status': 503, 'link_google_maps': gerar_link_google_maps(origem, [p['endereco'] for p in paradas_proc])}
+
+    return _montar_resposta(origem, origem_geo, paradas_proc, pernas, 'osrm', avisos, FATOR_TRANSITO_URBANO)
+
+
+def calcular_rota_osrm(origem, paradas):
+    return calcular_rota_inteligente(origem, paradas)
 
 # ==============================================================================
 # INICIALIZAÇÃO DO BANCO DE DADOS LOCAL (SQLITE3)
@@ -646,6 +1191,22 @@ def init_db():
     CREATE TABLE IF NOT EXISTS config_sistema (
         chave TEXT PRIMARY KEY,
         valor TEXT
+    )''')
+
+    # Rotas de Entrega Logística (Cálculo KM, Google Maps & Histórico)
+    c.execute('''
+    CREATE TABLE IF NOT EXISTS rotas_entrega (
+        id TEXT PRIMARY KEY,
+        data_rota TEXT,
+        endereco_origem TEXT NOT NULL,
+        total_paradas INTEGER NOT NULL,
+        distancia_km REAL,
+        tempo_estimado_min INTEGER,
+        pedidos_ids TEXT,
+        paradas_detalhes TEXT,
+        link_google_maps TEXT,
+        status TEXT DEFAULT 'Concluída',
+        created_at TEXT
     )''')
 
     # Catálogo Oficial de Modelos de Produtos
@@ -1091,6 +1652,15 @@ class AppleStoreHandler(http.server.SimpleHTTPRequestHandler):
                 self.send_json({'success': True, 'message': 'Modelo removido do catálogo com sucesso!'})
                 return
 
+            if path == '/api/rotas':
+                c.execute('DELETE FROM rotas_entrega WHERE id = ?', (item_id,))
+                conn.commit()
+                conn.close()
+                conn = None
+                sync_delete_supabase('rotas_entrega', 'id', item_id)
+                self.send_json({'success': True, 'message': 'Rota excluída do histórico com sucesso!'})
+                return
+
             self.send_error(404, "Endpoint DELETE não encontrado")
         except Exception as e:
             if conn:
@@ -1316,7 +1886,7 @@ class AppleStoreHandler(http.server.SimpleHTTPRequestHandler):
             # 4. Listar Pedidos de Venda
             if path == '/api/pedidos':
                 c.execute('''
-                    SELECT p.*, c.nome as cliente_nome, c.telefone_whatsapp, c.cpf_documento,
+                    SELECT p.*, c.nome as cliente_nome, c.telefone_whatsapp, c.cpf_documento, c.endereco as cliente_endereco,
                            (SELECT GROUP_CONCAT(d.modelo || ' (' || d.capacidade || ' - ' || d.identificador_valor || ')', ', ')
                             FROM itens_venda iv
                             JOIN dispositivos d ON d.id = iv.dispositivo_id
@@ -1359,7 +1929,7 @@ class AppleStoreHandler(http.server.SimpleHTTPRequestHandler):
             if path == '/api/encomendas':
                 c.execute('''
                     SELECT e.*, c.nome as cliente_nome, c.telefone_whatsapp,
-                           d.modelo as disp_modelo, d.capacidade as disp_capacidade, d.cor as disp_cor, d.preco_sugerido as disp_preco
+                    d.modelo as disp_modelo, d.capacidade as disp_capacidade, d.cor as disp_cor, d.preco_sugerido as disp_preco
                     FROM encomendas_desejos e
                     JOIN clientes c ON c.id = e.cliente_id
                     LEFT JOIN dispositivos d ON d.id = e.dispositivo_compativel_id
@@ -1386,8 +1956,10 @@ class AppleStoreHandler(http.server.SimpleHTTPRequestHandler):
                                     v = v.strip().strip('"').strip("'")
                                     if 'url' in k:
                                         config['supabase_url'] = v
-                                    elif 'key' in k:
+                                    elif 'key' in k and ('supabase' in k or 'anon' in k or 'service' in k):
                                         config['supabase_key'] = v
+                                    elif 'google' in k or 'maps' in k:
+                                        config['google_maps_key'] = v
                     except Exception:
                         pass
                 res_config = dict(config)
@@ -1395,11 +1967,27 @@ class AppleStoreHandler(http.server.SimpleHTTPRequestHandler):
                 self.send_json(res_config)
                 return
 
-            # 8. Catálogo de Modelos de Produtos
+            # 9. Catálogo de Modelos de Produtos
             if path == '/api/modelos':
                 c.execute('SELECT * FROM catalogo_modelos ORDER BY tipo ASC, nome ASC')
                 rows = [dict(r) for r in c.fetchall()]
                 self.send_json({'modelos': rows})
+                return
+
+            # 10. Rotas de Entrega Logística
+            if path == '/api/rotas':
+                c.execute('SELECT * FROM rotas_entrega ORDER BY created_at DESC')
+                rotas = []
+                for row in c.fetchall():
+                    item = dict(row)
+                    if item.get('pedidos_ids'):
+                        try: item['pedidos_ids'] = json.loads(item['pedidos_ids']) if isinstance(item['pedidos_ids'], str) else item['pedidos_ids']
+                        except Exception: item['pedidos_ids'] = []
+                    if item.get('paradas_detalhes'):
+                        try: item['paradas_detalhes'] = json.loads(item['paradas_detalhes']) if isinstance(item['paradas_detalhes'], str) else item['paradas_detalhes']
+                        except Exception: item['paradas_detalhes'] = []
+                    rotas.append(item)
+                self.send_json({'rotas': rotas})
                 return
 
             self.send_error(404, "Endpoint não encontrado")
@@ -2010,12 +2598,17 @@ O Cedente acima qualificado declara sob as penas da lei (Art. 180 e Art. 299 do 
                     self.send_json({'success': True, 'id': new_crm_id, 'message': 'Lead registrado no CRM!'})
                     return
 
-            # 6. Salvar Configurações (ex: Supabase)
+            # 6. Salvar Configurações (ex: Supabase, Google Maps)
             if path == '/api/config':
-                supabase_url = data.get('supabase_url', '').strip()
-                supabase_key = data.get('supabase_key', '').strip()
-                c.execute("INSERT OR REPLACE INTO config_sistema (chave, valor) VALUES ('supabase_url', ?)", (supabase_url,))
-                c.execute("INSERT OR REPLACE INTO config_sistema (chave, valor) VALUES ('supabase_key', ?)", (supabase_key,))
+                supabase_url = data.get('supabase_url')
+                supabase_key = data.get('supabase_key')
+                google_maps_key = data.get('google_maps_key')
+                if supabase_url is not None:
+                    c.execute("INSERT OR REPLACE INTO config_sistema (chave, valor) VALUES ('supabase_url', ?)", (supabase_url.strip(),))
+                if supabase_key is not None:
+                    c.execute("INSERT OR REPLACE INTO config_sistema (chave, valor) VALUES ('supabase_key', ?)", (supabase_key.strip(),))
+                if google_maps_key is not None:
+                    c.execute("INSERT OR REPLACE INTO config_sistema (chave, valor) VALUES ('google_maps_key', ?)", (google_maps_key.strip(),))
                 conn.commit()
                 conn.close()
                 conn = None
@@ -2230,6 +2823,76 @@ O Cedente acima qualificado declara sob as penas da lei (Art. 180 e Art. 299 do 
                 conn = None
                 recalcular_smart_matches()
                 self.send_json({'success': True, 'message': 'Modelo removido do catálogo com sucesso!'})
+                return
+
+            # 15. Calcular Rota Logística (KM, Tempo e Link Google Maps sem mapa visual)
+            if path == '/api/rotas/calcular':
+                origem_str = (data.get('origem') or '').strip()
+                paradas = data.get('paradas') or []
+                google_key = (data.get('google_api_key') or '').strip() or None
+                if not origem_str:
+                    self.send_json({'error': 'Endereço de partida (origem da loja) é obrigatório.'}, 400)
+                    return
+                if not paradas:
+                    self.send_json({'error': 'Selecione ao menos um endereço de entrega para calcular a rota.'}, 400)
+                    return
+                res_calc = calcular_rota_inteligente(origem_str, paradas, custom_google_key=google_key,
+                                                     otimizar=bool(data.get('otimizar', True)))
+                status_http = res_calc.pop('_status', 200)
+                self.send_json(res_calc, status_http)
+                return
+
+            # 16. Salvar Rota de Entrega no Histórico
+            if path == '/api/rotas':
+                rota_id = str(uuid.uuid4())
+                origem = data.get('origem', '').strip()
+                total_paradas = int(data.get('total_paradas', 0))
+                distancia_km = float(data.get('distancia_km', 0.0))
+                tempo_estimado_min = int(data.get('tempo_estimado_min', 0))
+                pedidos_ids = data.get('pedidos_ids', [])
+                paradas_detalhes = data.get('paradas_detalhes', [])
+                link_google_maps = data.get('link_google_maps', '')
+                status = data.get('status', 'Concluída')
+
+                pedidos_ids_json = json.dumps(pedidos_ids) if isinstance(pedidos_ids, list) else str(pedidos_ids)
+                paradas_detalhes_json = json.dumps(paradas_detalhes) if isinstance(paradas_detalhes, (list, dict)) else str(paradas_detalhes)
+
+                c.execute('''
+                    INSERT INTO rotas_entrega (
+                        id, data_rota, endereco_origem, total_paradas, distancia_km,
+                        tempo_estimado_min, pedidos_ids, paradas_detalhes, link_google_maps,
+                        status, created_at
+                    ) VALUES (?,?,?,?,?,?,?,?,?,?,?)
+                ''', (
+                    rota_id, now_str, origem, total_paradas, distancia_km,
+                    tempo_estimado_min, pedidos_ids_json, paradas_detalhes_json, link_google_maps,
+                    status, now_str
+                ))
+                c.execute('SELECT * FROM rotas_entrega WHERE id = ?', (rota_id,))
+                new_rota_row = c.fetchone()
+                conn.commit()
+                conn.close()
+                conn = None
+
+                if new_rota_row:
+                    sync_upsert_supabase('rotas_entrega', dict(new_rota_row))
+
+                self.send_json({
+                    'success': True,
+                    'id': rota_id,
+                    'message': 'Rota salva no histórico com sucesso!'
+                })
+                return
+
+            # 17. Excluir Rota do Histórico
+            if path == '/api/rotas/delete':
+                rota_id = data.get('id')
+                c.execute('DELETE FROM rotas_entrega WHERE id = ?', (rota_id,))
+                conn.commit()
+                conn.close()
+                conn = None
+                sync_delete_supabase('rotas_entrega', 'id', rota_id)
+                self.send_json({'success': True, 'message': 'Rota excluída do histórico com sucesso!'})
                 return
 
             self.send_error(404, "Endpoint POST não encontrado")

@@ -29,6 +29,12 @@ const AppState = {
     galeriaAtiva: null,
     zapConversaAtiva: null,
     consolidadoPeriodo: 'mes_atual',
+    rotas: [],
+    origemPadraoRota: localStorage.getItem('ilion_origem_rota') || 'Av. Afonso Pena, 1000 - Centro, Belo Horizonte - MG',
+    pedidosSelecionadosRotas: new Set(),
+    rotaAtualCalculada: null,
+    filtroRotasBusca: '',
+    ordemManualParadas: [],
     supabaseClient: null
 };
 
@@ -82,11 +88,12 @@ const TabTitles = {
     posvenda: { title: "Pós-Venda & Ciclo de Troca", subtitle: "Alertas de garantia balcão e lembrete anual de upgrade." },
     documentos: { title: "Recibos & Termos", subtitle: "Emissão de comprovantes oficiais e termos de cessão." },
     modelos: { title: "Catálogo de Produtos & Modelos", subtitle: "Padronização de modelos oficiais para seleção em todo o sistema." },
-    consolidado: { title: "Relatório Consolidado & Fechamento", subtitle: "Auditoria analítica de entradas, saídas, lucros e comparativo mensal com exportação PDF." }
+    consolidado: { title: "Relatório Consolidado & Fechamento", subtitle: "Auditoria analítica de entradas, saídas, lucros e comparativo mensal com exportação PDF." },
+    rotas: { title: "Rotas & Entregas Inteligentes", subtitle: "Roteirização rápida, cálculo de KM e navegação direta no Google Maps." }
 };
 
 function switchTab(tabName) {
-    const tabs = ['dashboard', 'estoque', 'tradein', 'crm', 'encomendas', 'posvenda', 'documentos', 'modelos', 'consolidado'];
+    const tabs = ['dashboard', 'estoque', 'tradein', 'crm', 'encomendas', 'posvenda', 'documentos', 'modelos', 'consolidado', 'rotas'];
     tabs.forEach(t => {
         const viewEl = document.getElementById(`view-${t}`);
         const navEl = document.getElementById(`nav-${t}`);
@@ -129,6 +136,7 @@ function switchTab(tabName) {
     if (tabName === 'documentos') renderDocumentos();
     if (tabName === 'modelos') renderModelos();
     if (tabName === 'consolidado') renderConsolidado();
+    if (tabName === 'rotas') renderRotas();
 }
 
 function toggleMobileMenu() {
@@ -141,7 +149,7 @@ function toggleMobileMenu() {
 // ==============================================================================
 async function loadAllData() {
     try {
-        const [dashRes, dispRes, cliRes, pedRes, tradeRes, crmRes, encRes, modRes] = await Promise.all([
+        const [dashRes, dispRes, cliRes, pedRes, tradeRes, crmRes, encRes, modRes, rotasRes] = await Promise.all([
             fetch(`/api/dashboard?periodo=${AppState.dashboardPeriodo || 'mes_atual'}`).then(r => r.json()),
             fetch('/api/dispositivos').then(r => r.json()),
             fetch('/api/clientes').then(r => r.json()),
@@ -149,7 +157,8 @@ async function loadAllData() {
             fetch('/api/trade-ins').then(r => r.json()),
             fetch('/api/crm').then(r => r.json()),
             fetch('/api/encomendas').then(r => r.json()),
-            fetch('/api/modelos').then(r => r.json()).catch(() => ({ modelos: [] }))
+            fetch('/api/modelos').then(r => r.json()).catch(() => ({ modelos: [] })),
+            fetch('/api/rotas').then(r => r.json()).catch(() => ({ rotas: [] }))
         ]);
 
         AppState.dashboard = dashRes;
@@ -160,6 +169,7 @@ async function loadAllData() {
         AppState.crmLeads = crmRes.leads || [];
         AppState.encomendas = encRes.encomendas || [];
         AppState.modelos = modRes.modelos || [];
+        AppState.rotas = rotasRes.rotas || [];
 
         renderDashboard();
         renderEstoque();
@@ -170,6 +180,7 @@ async function loadAllData() {
         renderPosVenda();
         renderDocumentos();
         renderModelos();
+        renderRotas();
         atualizarSelectsClientes();
         atualizarSelectsModelos();
     } catch (err) {
@@ -3587,5 +3598,1090 @@ function renderCardComparativo(elPctId, elAbsId, valorAtual, valorComp, isMoeda 
 function imprimirConsolidadoPDF() {
     window.print();
 }
+
+// ==============================================================================
+// MÓDULO 10: ROTAS & ENTREGAS LOGÍSTICA (SEM MAPA VISUAL, COM KM & GOOGLE MAPS)
+// ==============================================================================
+
+function salvarOrigemPadrao() {
+    const origInput = document.getElementById('rota-endereco-origem');
+    if (!origInput) return;
+    const val = origInput.value.trim();
+    if (!val) {
+        alert("Por favor, digite um endereço de partida válido para a loja.");
+        return;
+    }
+    localStorage.setItem('ilion_origem_rota', val);
+    AppState.origemPadraoRota = val;
+    alert("Endereço de partida padrão salvo com sucesso!");
+}
+
+function filtrarPedidosRotas(termo) {
+    AppState.filtroRotasBusca = (termo || '').toLowerCase().trim();
+    renderRotas();
+}
+
+function obterEnderecoCliente(pedido) {
+    if (pedido.cliente_endereco && pedido.cliente_endereco.trim()) {
+        return pedido.cliente_endereco.trim();
+    }
+    const cli = AppState.clientes.find(c => c.id === pedido.cliente_id);
+    return (cli && cli.endereco) ? cli.endereco.trim() : '';
+}
+
+function renderRotas() {
+    const origInput = document.getElementById('rota-endereco-origem');
+    if (origInput && !origInput.value) {
+        origInput.value = AppState.origemPadraoRota;
+    }
+
+    const tbody = document.getElementById('tabela-rotas-pedidos-corpo');
+    if (!tbody) return;
+
+    // Filtra pedidos elegíveis
+    let pedidos = [...AppState.pedidos];
+
+    if (AppState.filtroRotasBusca) {
+        const t = AppState.filtroRotasBusca;
+        pedidos = pedidos.filter(p => {
+            const cliNome = (p.cliente_nome || '').toLowerCase();
+            const cliTel = (p.telefone_whatsapp || '').toLowerCase();
+            const dispDesc = (p.dispositivos_descricao || '').toLowerCase();
+            const numPed = (p.numero_pedido || '').toLowerCase();
+            const end = obterEnderecoCliente(p).toLowerCase();
+            return cliNome.includes(t) || cliTel.includes(t) || dispDesc.includes(t) || numPed.includes(t) || end.includes(t);
+        });
+    }
+
+    if (pedidos.length === 0) {
+        tbody.innerHTML = `
+            <tr>
+                <td colspan="6" class="py-8 text-center text-slate-400">
+                    <i class="fa-solid fa-route text-2xl mb-2 text-slate-300 block"></i>
+                    Nenhuma venda encontrada para os critérios selecionados.
+                </td>
+            </tr>
+        `;
+    } else {
+        tbody.innerHTML = pedidos.map(p => {
+            const isChecked = AppState.pedidosSelecionadosRotas.has(p.id);
+            const endereco = obterEnderecoCliente(p);
+            const temEndereco = Boolean(endereco && endereco.length > 3);
+            const dataVendaStr = p.data_venda ? formatData(p.data_venda) : (p.created_at ? formatData(p.created_at) : '--');
+
+            return `
+                <tr class="hover:bg-slate-50/70 transition-colors ${isChecked ? 'bg-blue-50/30' : ''}">
+                    <td class="py-3 px-3 text-center">
+                        <input type="checkbox" onchange="alternarSelecaoPedidoRota('${p.id}', this.checked)" ${isChecked ? 'checked' : ''} class="accent-slate-900 rounded cursor-pointer w-4 h-4">
+                    </td>
+                    <td class="py-3 px-3">
+                        <span class="font-bold text-slate-800 block">${dataVendaStr}</span>
+                        <span class="font-mono text-[10px] text-slate-400">${p.numero_pedido || p.id.slice(0, 8)}</span>
+                    </td>
+                    <td class="py-3 px-3">
+                        <div class="flex items-center gap-1.5">
+                            <span class="font-bold text-slate-900">${p.cliente_nome || 'Cliente'}</span>
+                        </div>
+                        <span class="text-slate-500 font-mono text-[11px]">${p.telefone_whatsapp || 'Sem telefone'}</span>
+                    </td>
+                    <td class="py-3 px-3">
+                        <span class="text-slate-800 font-semibold leading-tight line-clamp-2">${p.dispositivos_descricao || 'Dispositivo Apple'}</span>
+                        <span class="text-[10px] text-slate-400 font-mono">${formatMoeda(p.valor_total_liquido || p.valor_subtotal || 0)}</span>
+                    </td>
+                    <td class="py-3 px-3">
+                        ${temEndereco ? `
+                            <div class="flex items-start gap-1.5">
+                                <span class="text-slate-700 leading-snug break-words max-w-xs">${endereco}</span>
+                                <button type="button" onclick="abrirModalEditarEndereco('${p.cliente_id}', '${p.id}')" class="text-blue-600 hover:text-blue-800 shrink-0 text-xs p-1" title="Editar endereço">
+                                    <i class="fa-solid fa-pen-to-square"></i>
+                                </button>
+                            </div>
+                        ` : `
+                            <div class="flex items-center gap-2">
+                                <span class="text-amber-700 font-bold bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200 text-[10px] flex items-center gap-1">
+                                    <i class="fa-solid fa-triangle-exclamation"></i> Sem endereço
+                                </span>
+                                <button type="button" onclick="abrirModalEditarEndereco('${p.cliente_id}', '${p.id}')" class="text-[11px] font-bold text-blue-600 hover:text-blue-800 hover:underline">
+                                    + Adicionar
+                                </button>
+                            </div>
+                        `}
+                    </td>
+                    <td class="py-3 px-3 text-right">
+                        <div class="flex items-center justify-end gap-1.5">
+                            <button type="button" onclick="abrirAvisoWhatsAppEntrega('${p.id}')" class="btn-pill-secondary text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-xs py-1.5 px-2.5 flex items-center gap-1 font-bold" title="Avisar no WhatsApp que o aparelho já saiu para entrega">
+                                <i class="fa-brands fa-whatsapp text-sm"></i>
+                                <span>Avisar</span>
+                            </button>
+                            <button type="button" onclick="abrirGoogleMapsIndividual('${p.id}')" class="btn-pill-secondary text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 text-xs py-1.5 px-2 flex items-center gap-1 font-bold" title="Abrir GPS deste cliente no Google Maps">
+                                <i class="fa-solid fa-location-dot"></i>
+                                <span>GPS</span>
+                            </button>
+                        </div>
+                    </td>
+                </tr>
+            `;
+        }).join('');
+    }
+
+    // Atualiza checkbox "Marcar Todos"
+    const chkTodos = document.getElementById('chk-selecionar-todos-pedidos');
+    if (chkTodos) {
+        chkTodos.checked = pedidos.length > 0 && pedidos.every(p => AppState.pedidosSelecionadosRotas.has(p.id));
+    }
+
+    // Atualiza botão de toggle
+    const btnToggle = document.getElementById('btn-toggle-selecao-todos');
+    if (btnToggle) {
+        const todosMarcados = pedidos.length > 0 && pedidos.every(p => AppState.pedidosSelecionadosRotas.has(p.id));
+        btnToggle.innerText = todosMarcados ? 'Desmarcar Todas' : 'Marcar Todas';
+    }
+
+    // Atualiza Métricas dos 3 Bento Cards
+    const totalSelecionados = AppState.pedidosSelecionadosRotas.size;
+    const cardTotalParadas = document.getElementById('rota-card-total-paradas');
+    if (cardTotalParadas) cardTotalParadas.innerText = `${totalSelecionados} parada${totalSelecionados !== 1 ? 's' : ''}`;
+
+    const cardStatusLabel = document.getElementById('rota-card-status-label');
+    if (cardStatusLabel) {
+        cardStatusLabel.innerText = totalSelecionados > 0 
+            ? `${totalSelecionados} entrega${totalSelecionados !== 1 ? 's' : ''} pronta${totalSelecionados !== 1 ? 's' : ''}` 
+            : 'Nenhum pedido marcado';
+    }
+
+    const cardDistancia = document.getElementById('rota-card-distancia-km');
+    const cardTempo = document.getElementById('rota-card-tempo-min');
+    const cardTempoSub = document.getElementById('rota-card-tempo-sub');
+    const cardMetodo = document.getElementById('rota-card-metodo-calculo');
+    const badgeMetodo = document.getElementById('rota-card-badge-metodo');
+
+    if (AppState.rotaAtualCalculada) {
+        const km = Number(AppState.rotaAtualCalculada.distancia_km || 0);
+        if (cardDistancia) {
+            if (km > 0 && km < 1.0) {
+                const metros = AppState.rotaAtualCalculada.distancia_metros || Math.round(km * 1000);
+                cardDistancia.innerHTML = `${metros} m <span class="text-xs font-semibold text-slate-500 font-sans">(${km.toFixed(2)} km)</span>`;
+            } else {
+                cardDistancia.innerText = `${km.toFixed(1)} km`;
+            }
+        }
+        if (cardTempo) cardTempo.innerText = `~${AppState.rotaAtualCalculada.tempo_estimado_min} min`;
+        if (cardTempoSub) {
+            const semTransito = AppState.rotaAtualCalculada.tempo_sem_transito_min;
+            if (semTransito && semTransito !== AppState.rotaAtualCalculada.tempo_estimado_min) {
+                cardTempoSub.innerText = `~${semTransito} min livre (+25% margem urbana)`;
+            } else {
+                cardTempoSub.innerText = 'Em trânsito (veículo/moto)';
+            }
+        }
+        
+        const metodo = AppState.rotaAtualCalculada.metodo || 'osrm';
+        if (cardMetodo) {
+            if (metodo.includes('google')) cardMetodo.innerText = 'Google Maps Oficial';
+            else if (metodo.includes('osrm')) cardMetodo.innerText = 'Trajeto Real pelas Ruas';
+            else if (metodo === 'manual') cardMetodo.innerText = 'Ajustado Manualmente';
+            else cardMetodo.innerText = 'Trajeto Calculado';
+        }
+        if (badgeMetodo) {
+            if (metodo.includes('google')) {
+                badgeMetodo.innerHTML = '<i class="fa-solid fa-bolt text-emerald-500"></i> <span class="text-emerald-700">Google Oficial</span>';
+            } else if (metodo.includes('osrm')) {
+                badgeMetodo.innerHTML = '<i class="fa-solid fa-bolt text-emerald-600"></i> <span class="text-emerald-700">Rota Real OSRM</span>';
+            } else if (metodo === 'manual') {
+                badgeMetodo.innerHTML = '<i class="fa-solid fa-pen text-indigo-500"></i> <span class="text-indigo-700">Manual</span>';
+            } else {
+                badgeMetodo.innerHTML = '<i class="fa-solid fa-bolt text-yellow-500"></i> Gratuito';
+            }
+        }
+    } else {
+        if (cardDistancia) cardDistancia.innerText = totalSelecionados > 0 ? 'Clique em Calcular' : '0.0 km';
+        if (cardTempo) cardTempo.innerText = totalSelecionados > 0 ? '--' : '0 min';
+        if (cardTempoSub) cardTempoSub.innerText = 'Em trânsito (veículo/moto)';
+        if (cardMetodo) cardMetodo.innerText = totalSelecionados > 0 ? 'Aguardando cálculo' : 'Nenhuma rota traçada';
+        if (badgeMetodo) badgeMetodo.innerHTML = '<i class="fa-solid fa-bolt"></i> Gratuito';
+    }
+
+    // Atualiza indicador da chave Google API no botão
+    const lblGoogleKey = document.getElementById('label-btn-google-key');
+    if (lblGoogleKey) {
+        if (AppState.config && AppState.config.google_maps_key) {
+            lblGoogleKey.innerHTML = 'Google API Ativa <span class="text-emerald-500 font-black">●</span>';
+        } else {
+            lblGoogleKey.innerText = 'Chave Google API';
+        }
+    }
+
+    // Atualiza Botão "Abrir no Google Maps"
+    const btnMaps = document.getElementById('btn-abrir-google-maps');
+    if (btnMaps) {
+        if (totalSelecionados > 0) {
+            btnMaps.classList.remove('opacity-60', 'cursor-not-allowed');
+            btnMaps.classList.add('hover:scale-[1.02]', 'shadow-lg');
+            if (AppState.rotaAtualCalculada && AppState.rotaAtualCalculada.link_google_maps) {
+                btnMaps.href = AppState.rotaAtualCalculada.link_google_maps;
+            } else {
+                btnMaps.href = "javascript:void(0)";
+            }
+        } else {
+            btnMaps.classList.add('opacity-60', 'cursor-not-allowed');
+            btnMaps.classList.remove('hover:scale-[1.02]', 'shadow-lg');
+            btnMaps.href = "javascript:void(0)";
+        }
+    }
+
+    // Atualiza Botão "Salvar Rota no Histórico"
+    const btnSalvar = document.getElementById('btn-salvar-rota-bd');
+    if (btnSalvar) {
+        if (AppState.rotaAtualCalculada && totalSelecionados > 0) {
+            btnSalvar.classList.remove('hidden');
+        } else {
+            btnSalvar.classList.add('hidden');
+        }
+    }
+
+    renderRoteiroSequencia();
+    renderHistoricoRotas();
+}
+
+function alternarSelecaoPedidoRota(pedidoId, isChecked) {
+    if (isChecked) {
+        AppState.pedidosSelecionadosRotas.add(pedidoId);
+    } else {
+        AppState.pedidosSelecionadosRotas.delete(pedidoId);
+    }
+    // Quando altera a seleção, reseta o cálculo anterior para incentivar o recálculo
+    AppState.rotaAtualCalculada = null;
+    renderRotas();
+}
+
+function alternarSelecaoTodosPedidosRotas() {
+    let pedidos = [...AppState.pedidos];
+    if (AppState.filtroRotasBusca) {
+        const t = AppState.filtroRotasBusca;
+        pedidos = pedidos.filter(p => {
+            const cliNome = (p.cliente_nome || '').toLowerCase();
+            const cliTel = (p.telefone_whatsapp || '').toLowerCase();
+            const dispDesc = (p.dispositivos_descricao || '').toLowerCase();
+            const numPed = (p.numero_pedido || '').toLowerCase();
+            const end = obterEnderecoCliente(p).toLowerCase();
+            return cliNome.includes(t) || cliTel.includes(t) || dispDesc.includes(t) || numPed.includes(t) || end.includes(t);
+        });
+    }
+
+    const todosMarcados = pedidos.length > 0 && pedidos.every(p => AppState.pedidosSelecionadosRotas.has(p.id));
+    if (todosMarcados) {
+        pedidos.forEach(p => AppState.pedidosSelecionadosRotas.delete(p.id));
+    } else {
+        pedidos.forEach(p => AppState.pedidosSelecionadosRotas.add(p.id));
+    }
+    AppState.rotaAtualCalculada = null;
+    renderRotas();
+}
+
+function aoMarcarDesmarcarTodosCheckbox(isChecked) {
+    let pedidos = [...AppState.pedidos];
+    if (AppState.filtroRotasBusca) {
+        const t = AppState.filtroRotasBusca;
+        pedidos = pedidos.filter(p => {
+            const cliNome = (p.cliente_nome || '').toLowerCase();
+            const cliTel = (p.telefone_whatsapp || '').toLowerCase();
+            const dispDesc = (p.dispositivos_descricao || '').toLowerCase();
+            const numPed = (p.numero_pedido || '').toLowerCase();
+            const end = obterEnderecoCliente(p).toLowerCase();
+            return cliNome.includes(t) || cliTel.includes(t) || dispDesc.includes(t) || numPed.includes(t) || end.includes(t);
+        });
+    }
+
+    if (isChecked) {
+        pedidos.forEach(p => AppState.pedidosSelecionadosRotas.add(p.id));
+    } else {
+        pedidos.forEach(p => AppState.pedidosSelecionadosRotas.delete(p.id));
+    }
+    AppState.rotaAtualCalculada = null;
+    renderRotas();
+}
+
+async function calcularRotaEntregas() {
+    const origInput = document.getElementById('rota-endereco-origem');
+    const origem = (origInput ? origInput.value : AppState.origemPadraoRota || '').trim();
+
+    if (!origem) {
+        alert("Por favor, informe o endereço de partida (sua loja).");
+        if (origInput) origInput.focus();
+        return;
+    }
+
+    const pedidosSelecionados = AppState.pedidos.filter(p => AppState.pedidosSelecionadosRotas.has(p.id));
+
+    if (pedidosSelecionados.length === 0) {
+        alert("Selecione ao menos um pedido com endereço de entrega marcado na tabela.");
+        return;
+    }
+
+    // Valida se algum pedido selecionado está sem endereço
+    const semEndereco = pedidosSelecionados.filter(p => !obterEnderecoCliente(p));
+    if (semEndereco.length > 0) {
+        const nomes = semEndereco.map(p => p.cliente_nome || 'Cliente').join(', ');
+        alert(`Atenção: O(s) pedido(s) de [${nomes}] está(ão) sem endereço cadastrado. Por favor, clique em "+ Adicionar" para preencher o endereço antes de calcular a rota.`);
+        return;
+    }
+
+    const paradasPayload = pedidosSelecionados.map(p => ({
+        pedido_id: p.id,
+        cliente_id: p.cliente_id,
+        cliente_nome: p.cliente_nome,
+        telefone_whatsapp: p.telefone_whatsapp,
+        dispositivos: p.dispositivos_descricao,
+        endereco: obterEnderecoCliente(p)
+    }));
+
+    const btnCalcular = document.getElementById('btn-calcular-rota');
+    const textoOriginal = btnCalcular ? btnCalcular.innerHTML : '';
+    if (btnCalcular) {
+        btnCalcular.disabled = true;
+        btnCalcular.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin text-yellow-400"></i> <span>Calculando rota real...</span>`;
+    }
+
+    try {
+        const googleKey = (AppState.config && AppState.config.google_maps_key) ? AppState.config.google_maps_key : '';
+        const resp = await fetch('/api/rotas/calcular', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                origem: origem,
+                paradas: paradasPayload,
+                google_api_key: googleKey,
+                otimizar: true
+            })
+        });
+
+        const data = await resp.json();
+        if (!resp.ok || data.error) {
+            throw new Error(data.error || 'Erro ao calcular rota.');
+        }
+
+        AppState.rotaAtualCalculada = data;
+        AppState.ordemManualParadas = data.paradas || paradasPayload;
+
+        // Sincroniza a ordem otimizada das paradas em AppState.pedidos para refletir no roteiro visual
+        if (Array.isArray(data.paradas) && data.paradas.length > 1) {
+            const idsOrdenados = data.paradas.map(p => p.pedido_id).filter(Boolean);
+            if (idsOrdenados.length === pedidosSelecionados.length) {
+                const posicoes = [];
+                AppState.pedidos.forEach((p, idx) => {
+                    if (AppState.pedidosSelecionadosRotas.has(p.id)) posicoes.push(idx);
+                });
+                const mapaPedidos = new Map(pedidosSelecionados.map(p => [p.id, p]));
+                posicoes.forEach((pos, i) => {
+                    const ped = mapaPedidos.get(idsOrdenados[i]);
+                    if (ped) AppState.pedidos[pos] = ped;
+                });
+            }
+        }
+
+        renderRotas();
+
+        // Monta resumo detalhado por parada
+        const totalKm = Number(data.distancia_km || 0);
+        const totalMin = data.tempo_estimado_min || 0;
+        const distStr = (totalKm > 0 && totalKm < 1.0)
+            ? `${data.distancia_metros || Math.round(totalKm * 1000)} metros (${totalKm.toFixed(2)} km)`
+            : `${totalKm.toFixed(1)} km`;
+        const resumoParadas = (data.paradas || []).map((p, i) => {
+            const pKm = Number(p.perna_km || 0);
+            const pDist = (pKm > 0 && pKm < 1.0) ? `${Math.round(pKm * 1000)} m` : `${pKm.toFixed(2)} km`;
+            return `  ${i + 1}. ${p.cliente_nome || 'Entrega'}: +${pDist} (~${p.perna_min || 1} min)`;
+        }).join('\n');
+        const avisosStr = (data.avisos && data.avisos.length > 0) ? `\n\n⚠️ Avisos:\n• ${data.avisos.join('\n• ')}` : '';
+
+        alert(`⚡ Rota Real Calculada!\n• Distância total: ${distStr}\n• Tempo estimado: ~${totalMin} min\n\nTrechos:\n${resumoParadas}${avisosStr}\n\nClique no botão verde "Abrir no Google Maps" para iniciar a navegação GPS.`);
+    } catch (err) {
+        console.error("Erro ao calcular rota:", err);
+        AppState.rotaAtualCalculada = null;
+        renderRotas();
+        alert(`⚠️ Não foi possível calcular a rota:\n\n${err.message}`);
+    } finally {
+        if (btnCalcular) {
+            btnCalcular.disabled = false;
+            btnCalcular.innerHTML = textoOriginal;
+        }
+    }
+}
+
+function construirLinkGoogleMapsClientSide(origem, enderecosParadas) {
+    if (!enderecosParadas || enderecosParadas.length === 0) {
+        return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(origem)}`;
+    }
+    const destino = enderecosParadas[enderecosParadas.length - 1];
+    const intermediarias = enderecosParadas.slice(0, -1);
+
+    let url = `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(origem)}&destination=${encodeURIComponent(destino)}&travelmode=driving`;
+    if (intermediarias.length > 0) {
+        const waypointsStr = intermediarias.join('|');
+        url += `&waypoints=${encodeURIComponent(waypointsStr)}`;
+    }
+    return url;
+}
+
+function aoClicarAbrirGoogleMaps(e) {
+    const totalSelecionados = AppState.pedidosSelecionadosRotas.size;
+    if (totalSelecionados === 0) {
+        e.preventDefault();
+        alert("Selecione ao menos um pedido de entrega na tabela para abrir a rota no Google Maps.");
+        return;
+    }
+
+    if (AppState.rotaAtualCalculada && AppState.rotaAtualCalculada.link_google_maps) {
+        window.open(AppState.rotaAtualCalculada.link_google_maps, '_blank');
+        return;
+    }
+
+    // Se ainda não apertou em calcular mas tem pedidos marcados, monta o link imediatamente
+    const origInput = document.getElementById('rota-endereco-origem');
+    const origem = (origInput ? origInput.value : AppState.origemPadraoRota || '').trim();
+    const pedidosSelecionados = AppState.pedidos.filter(p => AppState.pedidosSelecionadosRotas.has(p.id));
+    const enderecos = pedidosSelecionados.map(p => obterEnderecoCliente(p)).filter(Boolean);
+
+    if (enderecos.length === 0) {
+        e.preventDefault();
+        alert("Nenhum dos pedidos selecionados possui endereço válido preenchido.");
+        return;
+    }
+
+    const linkDireto = construirLinkGoogleMapsClientSide(origem, enderecos);
+    window.open(linkDireto, '_blank');
+}
+
+async function salvarRotaNoHistorico() {
+    if (!AppState.rotaAtualCalculada) {
+        alert("Calcule uma rota primeiro antes de salvar no histórico.");
+        return;
+    }
+
+    const origInput = document.getElementById('rota-endereco-origem');
+    const origem = (origInput ? origInput.value : AppState.origemPadraoRota || '').trim();
+    const pedidosIds = Array.from(AppState.pedidosSelecionadosRotas);
+    const paradasDetalhes = AppState.ordemManualParadas || [];
+
+    try {
+        const resp = await fetch('/api/rotas', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                origem: origem,
+                total_paradas: pedidosIds.length,
+                distancia_km: AppState.rotaAtualCalculada.distancia_km,
+                tempo_estimado_min: AppState.rotaAtualCalculada.tempo_estimado_min,
+                pedidos_ids: pedidosIds,
+                paradas_detalhes: paradasDetalhes,
+                link_google_maps: AppState.rotaAtualCalculada.link_google_maps,
+                status: 'Concluída'
+            })
+        });
+
+        const data = await resp.json();
+        if (!resp.ok || data.error) {
+            throw new Error(data.error || 'Erro ao salvar rota.');
+        }
+
+        // Recarrega lista de rotas
+        const rotasRes = await fetch('/api/rotas').then(r => r.json()).catch(() => ({ rotas: [] }));
+        AppState.rotas = rotasRes.rotas || [];
+
+        renderHistoricoRotas();
+        alert("Rota salva no histórico com sucesso e sincronizada com o banco de dados!");
+    } catch (err) {
+        console.error("Erro ao salvar rota no histórico:", err);
+        alert(`Erro ao salvar rota: ${err.message}`);
+    }
+}
+
+function editarDistanciaManual() {
+    const totalSelecionados = AppState.pedidosSelecionadosRotas.size;
+    if (totalSelecionados === 0) {
+        alert("Selecione ao menos um pedido para a rota antes de definir a distância.");
+        return;
+    }
+    const atual = AppState.rotaAtualCalculada ? AppState.rotaAtualCalculada.distancia_km : 0;
+    const input = prompt("Digite a distância (em km ou metros, ex: '0.27', '270m' ou '3.5'):", atual > 0 ? atual : '0.27');
+    if (input === null) return;
+    
+    let limpo = input.trim().toLowerCase().replace(',', '.');
+    let km = 0;
+    let metros = 0;
+    if (limpo.endsWith('m') && !limpo.endsWith('km')) {
+        metros = parseFloat(limpo.replace('m', '')) || 0;
+        km = Number((metros / 1000.0).toFixed(2));
+    } else {
+        km = parseFloat(limpo.replace('km', '')) || 0;
+        metros = Math.round(km * 1000);
+    }
+
+    if (km <= 0) {
+        alert("Distância inválida. Informe um valor numérico positivo.");
+        return;
+    }
+
+    if (!AppState.rotaAtualCalculada) {
+        const origInput = document.getElementById('rota-endereco-origem');
+        const origem = (origInput ? origInput.value : AppState.origemPadraoRota || '').trim();
+        const pedidos = AppState.pedidos.filter(p => AppState.pedidosSelecionadosRotas.has(p.id));
+        const enderecos = pedidos.map(p => obterEnderecoCliente(p)).filter(Boolean);
+        AppState.rotaAtualCalculada = {
+            distancia_km: km,
+            distancia_metros: metros,
+            tempo_estimado_min: Math.max(1, Math.round(km * 3)),
+            paradas: pedidos,
+            link_google_maps: construirLinkGoogleMapsClientSide(origem, enderecos),
+            metodo: 'manual'
+        };
+    } else {
+        AppState.rotaAtualCalculada.distancia_km = km;
+        AppState.rotaAtualCalculada.distancia_metros = metros;
+        AppState.rotaAtualCalculada.metodo = 'manual';
+    }
+
+    renderRotas();
+}
+
+function editarTempoManual() {
+    const totalSelecionados = AppState.pedidosSelecionadosRotas.size;
+    if (totalSelecionados === 0) {
+        alert("Selecione ao menos um pedido para a rota antes de definir o tempo.");
+        return;
+    }
+    const atual = AppState.rotaAtualCalculada ? AppState.rotaAtualCalculada.tempo_estimado_min : 1;
+    const input = prompt("Digite o tempo estimado em minutos (ex: '1' ou '15'):", atual > 0 ? atual : '1');
+    if (input === null) return;
+
+    const min = parseInt(input.trim().replace(/\D/g, ''), 10);
+    if (!min || min <= 0) {
+        alert("Tempo inválido. Informe um número de minutos maior que zero.");
+        return;
+    }
+
+    if (!AppState.rotaAtualCalculada) {
+        const origInput = document.getElementById('rota-endereco-origem');
+        const origem = (origInput ? origInput.value : AppState.origemPadraoRota || '').trim();
+        const pedidos = AppState.pedidos.filter(p => AppState.pedidosSelecionadosRotas.has(p.id));
+        const enderecos = pedidos.map(p => obterEnderecoCliente(p)).filter(Boolean);
+        AppState.rotaAtualCalculada = {
+            distancia_km: 0.3,
+            distancia_metros: 300,
+            tempo_estimado_min: min,
+            paradas: pedidos,
+            link_google_maps: construirLinkGoogleMapsClientSide(origem, enderecos),
+            metodo: 'manual'
+        };
+    } else {
+        AppState.rotaAtualCalculada.tempo_estimado_min = min;
+        AppState.rotaAtualCalculada.metodo = 'manual';
+    }
+
+    renderRotas();
+}
+
+function abrirModalConfigGoogleMaps() {
+    const input = document.getElementById('input-google-maps-key');
+    if (input) {
+        input.value = (AppState.config && AppState.config.google_maps_key) ? AppState.config.google_maps_key : '';
+    }
+    openModal('modal-config-google-maps');
+}
+
+async function salvarConfigGoogleMaps(e) {
+    if (e && e.preventDefault) e.preventDefault();
+    const input = document.getElementById('input-google-maps-key');
+    const key = input ? input.value.trim() : '';
+
+    try {
+        const resp = await fetch('/api/config', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ google_maps_key: key })
+        });
+        const resData = await resp.json().catch(() => ({}));
+        if (!resp.ok) throw new Error(resData.error || 'Falha ao salvar chave.');
+
+        if (!AppState.config) AppState.config = {};
+        AppState.config.google_maps_key = key;
+
+        closeModal('modal-config-google-maps');
+        renderRotas();
+        if (key) {
+            alert("Chave do Google Maps salva com sucesso! Os próximos cálculos de rota usarão a API oficial com precisão metro a metro.");
+        } else {
+            alert("Chave removida. O sistema voltará a usar o motor gratuito inteligente.");
+        }
+    } catch (err) {
+        console.error("Erro ao salvar chave Google Maps:", err);
+        alert(`Erro ao salvar chave: ${err.message}`);
+    }
+}
+
+async function removerChaveGoogleMaps() {
+    if (!confirm("Deseja remover a chave de API do Google Maps e voltar ao cálculo inteligente gratuito?")) return;
+    const input = document.getElementById('input-google-maps-key');
+    if (input) input.value = '';
+    await salvarConfigGoogleMaps({ preventDefault: () => {} });
+}
+
+function renderRoteiroSequencia() {
+    const container = document.getElementById('lista-paradas-sequencia');
+    const badgeTotal = document.getElementById('badge-sequencia-total');
+    if (!container) return;
+
+    const pedidosSelecionados = AppState.pedidos.filter(p => AppState.pedidosSelecionadosRotas.has(p.id));
+
+    if (pedidosSelecionados.length === 0) {
+        if (badgeTotal) badgeTotal.innerText = '0 paradas';
+        container.innerHTML = `
+            <div class="p-6 text-center text-slate-400 bg-slate-50/50 rounded-2xl border border-dashed border-slate-200">
+                <i class="fa-solid fa-map-pin text-xl mb-1 text-slate-300 block"></i>
+                Marque pedidos na tabela acima para gerar a sequência de entregas do motoboy.
+            </div>
+        `;
+        return;
+    }
+
+    if (badgeTotal) badgeTotal.innerText = `${pedidosSelecionados.length} paradas na rota`;
+
+    const origInput = document.getElementById('rota-endereco-origem');
+    const origem = (origInput ? origInput.value : AppState.origemPadraoRota || '').trim();
+
+    const paradasCalculadas = (AppState.rotaAtualCalculada && Array.isArray(AppState.rotaAtualCalculada.paradas))
+        ? AppState.rotaAtualCalculada.paradas
+        : [];
+    const origemEncontrada = (AppState.rotaAtualCalculada && AppState.rotaAtualCalculada.origem_encontrada)
+        ? AppState.rotaAtualCalculada.origem_encontrada
+        : '';
+
+    let html = `
+        <!-- Ponto Zero: Partida da Loja -->
+        <div class="flex items-center gap-3 p-3.5 bg-slate-900 text-white rounded-2xl shadow-sm">
+            <div class="w-8 h-8 rounded-xl bg-yellow-400 text-slate-950 flex items-center justify-center font-black text-xs shrink-0">
+                <i class="fa-solid fa-store"></i>
+            </div>
+            <div class="flex-1 min-w-0">
+                <div class="flex items-center gap-2">
+                    <span class="font-bold text-xs text-yellow-400">SAÍDA &bull; Ponto 0</span>
+                    <span class="text-[10px] text-slate-400 font-mono">Loja iLion Store</span>
+                </div>
+                <p class="text-xs text-slate-200 truncate font-medium">${origem || 'Endereço da Loja'}</p>
+                ${origemEncontrada ? `<p class="text-[10px] text-emerald-400 truncate mt-0.5"><i class="fa-solid fa-circle-check mr-1"></i>GPS: ${origemEncontrada}</p>` : ''}
+            </div>
+        </div>
+    `;
+
+    pedidosSelecionados.forEach((p, idx) => {
+        const endereco = obterEnderecoCliente(p);
+        const paradaNum = idx + 1;
+        const ehUltima = idx === pedidosSelecionados.length - 1;
+
+        // Procura dados calculados desta parada (por endereço ou posição)
+        const normEnd = (endereco || '').trim().toLowerCase();
+        const infoCalc = paradasCalculadas.find(pc => (pc.endereco || '').trim().toLowerCase() === normEnd) || paradasCalculadas[idx] || null;
+        let badgeTrechoHtml = '';
+        let endConfirmadoHtml = '';
+
+        if (infoCalc && infoCalc.perna_km !== undefined) {
+            const trechoStr = infoCalc.perna_km < 1
+                ? `+${Math.round(infoCalc.perna_km * 1000)} m`
+                : `+${Number(infoCalc.perna_km).toFixed(2).replace('.', ',')} km`;
+            const minStr = infoCalc.perna_min ? ` &bull; ~${infoCalc.perna_min} min` : '';
+            badgeTrechoHtml = `
+                <span class="text-[10px] px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 font-mono font-bold">
+                    <i class="fa-solid fa-route mr-1 text-[9px]"></i>${trechoStr}${minStr}
+                </span>
+            `;
+        }
+        if (infoCalc && infoCalc.endereco_encontrado) {
+            endConfirmadoHtml = `
+                <p class="text-[10px] text-emerald-600 truncate mt-0.5 font-medium">
+                    <i class="fa-solid fa-circle-check mr-1"></i>Confirmado no mapa: ${infoCalc.endereco_encontrado}
+                </p>
+            `;
+        }
+
+        html += `
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 bg-white rounded-2xl border border-slate-200 hover:border-slate-300 transition-all shadow-xs">
+                <div class="flex items-center gap-3 min-w-0 flex-1">
+                    <div class="w-8 h-8 rounded-xl bg-blue-50 text-blue-700 flex items-center justify-center font-black text-xs shrink-0 border border-blue-200">
+                        ${paradaNum}
+                    </div>
+                    <div class="min-w-0 flex-1">
+                        <div class="flex items-center flex-wrap gap-1.5">
+                            <span class="font-bold text-xs text-slate-900">${p.cliente_nome || 'Cliente'}</span>
+                            <span class="text-[10px] px-2 py-0.5 rounded-full ${ehUltima ? 'bg-purple-100 text-purple-800 font-bold' : 'bg-slate-100 text-slate-600'}">
+                                ${ehUltima ? 'Destino Final' : `Parada ${paradaNum}`}
+                            </span>
+                            ${badgeTrechoHtml}
+                        </div>
+                        <p class="text-xs text-slate-600 truncate mt-0.5">
+                            <i class="fa-solid fa-location-dot text-slate-400 mr-1 text-[11px]"></i>
+                            ${endereco || '<span class="text-amber-600 font-bold">Endereço não cadastrado</span>'}
+                        </p>
+                        ${endConfirmadoHtml}
+                        <p class="text-[11px] text-slate-400 truncate mt-0.5">
+                            ${p.dispositivos_descricao || 'Aparelho Apple'} &bull; ${p.telefone_whatsapp || ''}
+                        </p>
+                    </div>
+                </div>
+
+                <div class="flex items-center gap-1.5 shrink-0 justify-end pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-100">
+                    <button type="button" onclick="moverParadaSequencia(${idx}, -1)" ${idx === 0 ? 'disabled class="opacity-30 cursor-not-allowed"' : 'class="hover:bg-slate-100"'} class="w-7 h-7 rounded-lg border border-slate-200 text-slate-600 flex items-center justify-center text-xs" title="Mover parada para cima">
+                        <i class="fa-solid fa-chevron-up"></i>
+                    </button>
+                    <button type="button" onclick="moverParadaSequencia(${idx}, 1)" ${ehUltima ? 'disabled class="opacity-30 cursor-not-allowed"' : 'class="hover:bg-slate-100"'} class="w-7 h-7 rounded-lg border border-slate-200 text-slate-600 flex items-center justify-center text-xs" title="Mover parada para baixo">
+                        <i class="fa-solid fa-chevron-down"></i>
+                    </button>
+                    <button type="button" onclick="abrirAvisoWhatsAppEntrega('${p.id}')" class="btn-pill-secondary text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-xs py-1.5 px-2.5 flex items-center gap-1 font-bold" title="Avisar cliente no WhatsApp">
+                        <i class="fa-brands fa-whatsapp"></i>
+                        <span class="hidden sm:inline">WhatsApp</span>
+                    </button>
+                    <button type="button" onclick="abrirGoogleMapsIndividual('${p.id}')" class="btn-pill-secondary text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 text-xs py-1.5 px-2 flex items-center gap-1 font-bold" title="Abrir GPS individual no Google Maps">
+                        <i class="fa-solid fa-location-dot"></i>
+                    </button>
+                </div>
+            </div>
+        `;
+    });
+
+    container.innerHTML = html;
+}
+
+function moverParadaSequencia(indexAtual, direcao) {
+    const pedidosSelecionados = AppState.pedidos.filter(p => AppState.pedidosSelecionadosRotas.has(p.id));
+    const novoIndex = indexAtual + direcao;
+    if (novoIndex < 0 || novoIndex >= pedidosSelecionados.length) return;
+
+    // Move no array de pedidos da aplicação para refletir a nova sequência
+    const itemA = pedidosSelecionados[indexAtual];
+    const itemB = pedidosSelecionados[novoIndex];
+
+    const idxA = AppState.pedidos.indexOf(itemA);
+    const idxB = AppState.pedidos.indexOf(itemB);
+
+    if (idxA !== -1 && idxB !== -1) {
+        AppState.pedidos[idxA] = itemB;
+        AppState.pedidos[idxB] = itemA;
+    }
+
+    // Se houver rota calculada, regenera o link com a nova sequência
+    if (AppState.rotaAtualCalculada) {
+        const origInput = document.getElementById('rota-endereco-origem');
+        const origem = (origInput ? origInput.value : AppState.origemPadraoRota || '').trim();
+        const novaOrdemPedidos = AppState.pedidos.filter(p => AppState.pedidosSelecionadosRotas.has(p.id));
+        const enderecos = novaOrdemPedidos.map(p => obterEnderecoCliente(p)).filter(Boolean);
+        AppState.rotaAtualCalculada.link_google_maps = construirLinkGoogleMapsClientSide(origem, enderecos);
+    }
+
+    renderRotas();
+}
+
+function abrirModalEditarEndereco(clienteId, pedidoId) {
+    const cli = AppState.clientes.find(c => c.id === clienteId);
+    const ped = AppState.pedidos.find(p => p.id === pedidoId);
+
+    document.getElementById('edit-end-cliente-id').value = clienteId || '';
+    document.getElementById('edit-end-pedido-id').value = pedidoId || '';
+
+    const labelNome = document.getElementById('modal-end-cliente-nome');
+    if (labelNome) {
+        labelNome.innerText = cli ? `${cli.nome} • WhatsApp: ${cli.telefone_whatsapp || ''}` : (ped ? ped.cliente_nome : 'Cliente');
+    }
+
+    const endAtual = (ped && ped.cliente_endereco) ? ped.cliente_endereco : (cli ? cli.endereco || '' : '');
+    const textarea = document.getElementById('edit-end-texto');
+    if (textarea) {
+        textarea.value = endAtual;
+    }
+
+    openModal('modal-editar-endereco-entrega');
+}
+
+async function salvarEnderecoClienteRapido(e) {
+    e.preventDefault();
+    const clienteId = document.getElementById('edit-end-cliente-id').value;
+    const pedidoId = document.getElementById('edit-end-pedido-id').value;
+    const novoEndereco = document.getElementById('edit-end-texto').value.trim();
+
+    if (!clienteId) {
+        alert("ID do cliente não encontrado.");
+        return;
+    }
+
+    try {
+        const cli = AppState.clientes.find(c => c.id === clienteId);
+        const cliPayload = cli ? { ...cli, endereco: novoEndereco } : { id: clienteId, endereco: novoEndereco };
+
+        const resp = await fetch('/api/clientes', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(cliPayload)
+        });
+
+        if (!resp.ok) {
+            const errData = await resp.json().catch(() => ({}));
+            throw new Error(errData.error || 'Falha ao salvar endereço.');
+        }
+
+        // Atualiza no estado local de clientes e pedidos
+        if (cli) cli.endereco = novoEndereco;
+        AppState.pedidos.forEach(p => {
+            if (p.cliente_id === clienteId) {
+                p.cliente_endereco = novoEndereco;
+            }
+        });
+
+        closeModal('modal-editar-endereco-entrega');
+        renderRotas();
+        alert("Endereço do cliente atualizado com sucesso!");
+    } catch (err) {
+        console.error("Erro ao salvar endereço rápido:", err);
+        alert(`Erro ao salvar endereço: ${err.message}`);
+    }
+}
+
+function abrirAvisoWhatsAppEntrega(pedidoId) {
+    const pedido = AppState.pedidos.find(p => p.id === pedidoId);
+    if (!pedido) {
+        alert("Pedido não encontrado.");
+        return;
+    }
+
+    const tel = pedido.telefone_whatsapp || '';
+    const cleanTel = tel.replace(/\D/g, '');
+    if (!cleanTel) {
+        alert(`O cliente ${pedido.cliente_nome || ''} não possui número de WhatsApp cadastrado.`);
+        return;
+    }
+
+    const foneFormatado = cleanTel.startsWith('55') ? cleanTel : `55${cleanTel}`;
+    const clienteNome = pedido.cliente_nome ? pedido.cliente_nome.split(' ')[0] : 'Cliente';
+    const aparelhoDesc = pedido.dispositivos_descricao || 'seu novo aparelho';
+    const endereco = obterEnderecoCliente(pedido) || 'endereço combinado';
+
+    const texto = `Olá, *${clienteNome}*! Tudo bem? Aqui é da iLion Store. 🛵✨\n\nSeu pedido (*${aparelhoDesc}*) já saiu para entrega no seguinte endereço:\n📍 *${endereco}*\n\nNosso entregador já está a caminho! Por favor, certifique-se de que haverá alguém para receber o produto e conferir com o termo de entrega.\n\nQualquer dúvida estamos à disposição por aqui!`;
+
+    const url = `https://wa.me/${foneFormatado}?text=${encodeURIComponent(texto)}`;
+    window.open(url, '_blank');
+}
+
+function abrirGoogleMapsIndividual(pedidoId) {
+    const pedido = AppState.pedidos.find(p => p.id === pedidoId);
+    if (!pedido) return;
+    const endereco = obterEnderecoCliente(pedido);
+    if (!endereco) {
+        alert(`O pedido de ${pedido.cliente_nome || 'Cliente'} está sem endereço cadastrado. Preencha o endereço primeiro.`);
+        abrirModalEditarEndereco(pedido.cliente_id, pedido.id);
+        return;
+    }
+    const url = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(endereco)}`;
+    window.open(url, '_blank');
+}
+
+function renderHistoricoRotas() {
+    const tbody = document.getElementById('tabela-historico-rotas-corpo');
+    const badgeTotal = document.getElementById('historico-rotas-total');
+    if (!tbody) return;
+
+    const rotas = AppState.rotas || [];
+    if (badgeTotal) badgeTotal.innerText = `${rotas.length} rota${rotas.length !== 1 ? 's' : ''} salva${rotas.length !== 1 ? 's' : ''}`;
+
+    if (rotas.length === 0) {
+        tbody.innerHTML = `
+            <tr>
+                <td colspan="6" class="py-6 text-center text-slate-400">
+                    Nenhuma rota salva no histórico ainda. Quando você calcular uma rota, poderá clicar em "Salvar Rota".
+                </td>
+            </tr>
+        `;
+        return;
+    }
+
+    tbody.innerHTML = rotas.map(r => {
+        const dataStr = r.data_rota ? formatData(r.data_rota) : (r.created_at ? formatData(r.created_at) : '--');
+        const kmStr = r.distancia_km ? `${Number(r.distancia_km).toFixed(1)} km` : '--';
+        const tempoStr = r.tempo_estimado_min ? `${r.tempo_estimado_min} min` : '--';
+
+        return `
+            <tr class="hover:bg-slate-50 transition-colors">
+                <td class="py-2.5 px-3">
+                    <span class="font-bold text-slate-800">${dataStr}</span>
+                </td>
+                <td class="py-2.5 px-3">
+                    <span class="text-slate-600 truncate max-w-xs block font-medium">${r.endereco_origem || '--'}</span>
+                </td>
+                <td class="py-2.5 px-3 text-center">
+                    <span class="px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 font-bold font-mono text-[11px]">
+                        ${r.total_paradas || 0}
+                    </span>
+                </td>
+                <td class="py-2.5 px-3 font-mono font-bold text-slate-900">${kmStr}</td>
+                <td class="py-2.5 px-3 text-slate-600 font-mono">${tempoStr}</td>
+                <td class="py-2.5 px-3 text-right">
+                    <div class="flex items-center justify-end gap-1.5">
+                        ${r.link_google_maps ? `
+                            <a href="${r.link_google_maps}" target="_blank" class="btn-pill-secondary text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-xs py-1 px-2.5 flex items-center gap-1 font-bold" title="Reabrir rota no Google Maps">
+                                <i class="fa-solid fa-map-location-dot"></i>
+                                <span>Maps</span>
+                            </a>
+                        ` : ''}
+                        <button type="button" onclick="excluirRotaHistorico('${r.id}')" class="text-slate-400 hover:text-rose-600 p-1 transition-colors" title="Excluir rota do histórico">
+                            <i class="fa-solid fa-trash-can text-xs"></i>
+                        </button>
+                    </div>
+                </td>
+            </tr>
+        `;
+    }).join('');
+}
+
+async function excluirRotaHistorico(rotaId) {
+    if (!confirm("Deseja realmente remover esta rota do histórico?")) return;
+
+    try {
+        const resp = await fetch(`/api/rotas?id=${rotaId}`, { method: 'DELETE' });
+        if (!resp.ok) {
+            // Tenta fallback via POST
+            await fetch('/api/rotas/delete', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id: rotaId })
+            });
+        }
+        AppState.rotas = AppState.rotas.filter(r => r.id !== rotaId);
+        renderHistoricoRotas();
+    } catch (err) {
+        console.error("Erro ao excluir rota:", err);
+        alert(`Erro ao excluir rota: ${err.message}`);
+    }
+}
+
+function imprimirRoteiroEntregas() {
+    const pedidosSelecionados = AppState.pedidos.filter(p => AppState.pedidosSelecionadosRotas.has(p.id));
+
+    if (pedidosSelecionados.length === 0) {
+        alert("Selecione ao menos um pedido para gerar o roteiro de entrega impresso.");
+        return;
+    }
+
+    const origInput = document.getElementById('rota-endereco-origem');
+    const origem = (origInput ? origInput.value : AppState.origemPadraoRota || '').trim();
+
+    const km = AppState.rotaAtualCalculada ? `${AppState.rotaAtualCalculada.distancia_km} km` : 'Não calculado';
+    const tempo = AppState.rotaAtualCalculada ? `${AppState.rotaAtualCalculada.tempo_estimado_min} min` : 'Não calculado';
+
+    const container = document.getElementById('printable-roteiro-content');
+    if (!container) return;
+
+    const agora = new Date();
+    const dataHoraStr = `${agora.toLocaleDateString('pt-BR')} às ${agora.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`;
+
+    let html = `
+        <!-- Cabeçalho Timbrado do Roteiro -->
+        <div class="border-b-2 border-slate-900 pb-4 flex items-center justify-between">
+            <div class="flex items-center gap-3">
+                <img src="leao.jpg" class="w-12 h-12 rounded-xl object-cover">
+                <div>
+                    <h2 class="text-base font-black text-slate-900 uppercase tracking-tight">iLion Apple Specialist &bull; Logística de Entregas</h2>
+                    <p class="text-xs text-slate-600 font-medium">Manifesto de Despacho &bull; Guia de Entrega ao Cliente</p>
+                </div>
+            </div>
+            <div class="text-right text-xs">
+                <span class="font-bold text-slate-900 block">Emissão: ${dataHoraStr}</span>
+                <span class="text-slate-500 font-mono">Total de Paradas: ${pedidosSelecionados.length}</span>
+            </div>
+        </div>
+
+        <!-- Resumo do Trajeto -->
+        <div class="grid grid-cols-3 gap-3 p-3 bg-slate-50 rounded-xl border border-slate-200 text-xs">
+            <div>
+                <span class="text-[10px] uppercase font-bold text-slate-400 block">Ponto de Partida (Loja)</span>
+                <span class="font-bold text-slate-800 leading-tight block">${origem}</span>
+            </div>
+            <div>
+                <span class="text-[10px] uppercase font-bold text-slate-400 block">Distância Total Trajeto</span>
+                <span class="font-black text-slate-900 font-mono text-sm block">${km}</span>
+            </div>
+            <div>
+                <span class="text-[10px] uppercase font-bold text-slate-400 block">Tempo Estimado Rota</span>
+                <span class="font-black text-slate-900 font-mono text-sm block">${tempo}</span>
+            </div>
+        </div>
+
+        <!-- Lista de Paradas para Assinatura do Cliente -->
+        <div class="space-y-4">
+            <h3 class="font-bold text-xs uppercase tracking-wider text-slate-700 border-b border-slate-200 pb-1">
+                Sequência de Entregas & Comprovantes de Recebimento
+            </h3>
+
+            <div class="space-y-3">
+    `;
+
+    pedidosSelecionados.forEach((p, idx) => {
+        const paradaNum = idx + 1;
+        const endereco = obterEnderecoCliente(p) || 'Endereço a confirmar';
+        html += `
+            <div class="p-3.5 border border-slate-300 rounded-xl space-y-2 break-inside-avoid">
+                <div class="flex items-start justify-between gap-2 border-b border-slate-100 pb-2">
+                    <div class="flex items-center gap-2">
+                        <span class="w-6 h-6 rounded-full bg-slate-900 text-white flex items-center justify-center font-bold text-xs">
+                            ${paradaNum}
+                        </span>
+                        <div>
+                            <span class="font-bold text-xs text-slate-900">${p.cliente_nome || 'Cliente'}</span>
+                            <span class="text-[11px] text-slate-500 ml-2 font-mono">${p.telefone_whatsapp || ''}</span>
+                        </div>
+                    </div>
+                    <span class="font-mono text-[10px] text-slate-400">${p.numero_pedido || ''}</span>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                    <div>
+                        <span class="text-[10px] uppercase font-bold text-slate-400 block">Endereço de Entrega:</span>
+                        <span class="text-slate-800 font-semibold leading-snug">${endereco}</span>
+                    </div>
+                    <div>
+                        <span class="text-[10px] uppercase font-bold text-slate-400 block">Aparelho(s) a Entregar:</span>
+                        <span class="text-slate-800 font-semibold">${p.dispositivos_descricao || 'Dispositivo Apple'}</span>
+                    </div>
+                </div>
+
+                <!-- Campo de Assinatura de Recebimento -->
+                <div class="pt-2 border-t border-slate-100 flex items-end justify-between gap-4">
+                    <div class="flex-1">
+                        <span class="text-[9px] uppercase font-bold text-slate-400 block">Nome Legível de quem Recebeu:</span>
+                        <div class="border-b border-slate-300 h-5"></div>
+                    </div>
+                    <div class="w-32">
+                        <span class="text-[9px] uppercase font-bold text-slate-400 block">RG / CPF:</span>
+                        <div class="border-b border-slate-300 h-5"></div>
+                    </div>
+                    <div class="w-48">
+                        <span class="text-[9px] uppercase font-bold text-slate-400 block">Assinatura:</span>
+                        <div class="border-b border-slate-300 h-5"></div>
+                    </div>
+                </div>
+            </div>
+        `;
+    });
+
+    html += `
+            </div>
+        </div>
+
+        <!-- Rodapé do Manifesto -->
+        <div class="border-t border-slate-200 pt-3 flex items-center justify-between text-[10px] text-slate-400">
+            <span>iLion Apple Specialist &bull; Todos os aparelhos conferidos e revisados</span>
+            <span>Documento emitido internamente para controle logístico</span>
+        </div>
+    `;
+
+    container.innerHTML = html;
+    openModal('modal-imprimir-roteiro');
+}
+
 
 
