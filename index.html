@@ -1474,18 +1474,57 @@
                     </div>
                 </div>
 
-                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div>
-                        <label class="block text-xs font-bold text-slate-700 mb-1">Identificador</label>
-                        <select id="cad-identificador-tipo" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold text-slate-800 focus:outline-none">
-                            <option value="IMEI">IMEI (iPhone/iPad)</option>
-                            <option value="Serial">Número de Série (Serial)</option>
-                        </select>
+                <div class="p-3.5 bg-slate-50 rounded-2xl border border-slate-200 space-y-2.5">
+                    <div class="grid grid-cols-1 sm:grid-cols-12 gap-2.5 items-end">
+                        <div class="sm:col-span-3">
+                            <label class="block text-xs font-bold text-slate-700 mb-1">Identificador</label>
+                            <select id="cad-identificador-tipo" onchange="aoDigitarIMEICadastro(document.getElementById('cad-identificador-valor').value)" class="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold text-slate-800 focus:outline-none">
+                                <option value="IMEI">IMEI (iPhone/iPad)</option>
+                                <option value="Serial">Número de Série (Serial)</option>
+                            </select>
+                        </div>
+                        <div class="sm:col-span-6">
+                            <div class="flex items-center justify-between mb-1">
+                                <label class="block text-xs font-bold text-slate-700">Código do IMEI ou Serial</label>
+                                <span id="cad-imei-contador" class="text-[10px] font-mono font-bold text-slate-400">0/15 dígitos</span>
+                            </div>
+                            <div class="flex items-center gap-1.5">
+                                <input type="text" id="cad-identificador-valor" required oninput="aoDigitarIMEICadastro(this.value)" placeholder="Ex: 352984110293841 (*#06#)" class="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-mono font-bold text-slate-900 focus:outline-none focus:border-slate-800">
+                                <button type="button" onclick="verificarIMEICadastro()" class="px-3 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold shrink-0 flex items-center gap-1.5 shadow-xs transition-all" title="Validar autenticidade GSMA, checar histórico na loja e identificar TAC">
+                                    <i class="fa-solid fa-magnifying-glass-chart text-yellow-400"></i>
+                                    <span>Consultar</span>
+                                </button>
+                            </div>
+                        </div>
+                        <div class="sm:col-span-3">
+                            <label class="block text-xs font-bold text-slate-700 mb-1">Situação Anatel / iCloud</label>
+                            <select id="cad-imei-status" class="w-full bg-white border border-slate-200 rounded-xl px-2.5 py-2 text-xs font-bold text-slate-800 focus:outline-none">
+                                <option value="limpo">✅ Regular / Limpo</option>
+                                <option value="pendente" selected>⏳ Não Verificado</option>
+                                <option value="restricao">🚫 Com Restrição</option>
+                            </select>
+                        </div>
                     </div>
-                    <div>
-                        <label class="block text-xs font-bold text-slate-700 mb-1">Código do IMEI ou Serial</label>
-                        <input type="text" id="cad-identificador-valor" required placeholder="Ex: 352984110293841" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-mono text-slate-800 focus:outline-none">
+
+                    <!-- Barra de Atalhos Oficiais (Copia o IMEI e abre Pop-up Lateral) -->
+                    <div class="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-slate-200/80">
+                        <span class="text-[11px] text-slate-500 font-medium">
+                            <i class="fa-solid fa-shield-halved text-slate-400 mr-1"></i>Consulta oficial (copia o IMEI automaticamente p/ colar):
+                        </span>
+                        <div class="flex flex-wrap items-center gap-1.5">
+                            <button type="button" onclick="abrirConsultaAnatelPopup('cad-identificador-valor', 'cad-imei-status')" class="px-2.5 py-1 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 text-[11px] font-bold flex items-center gap-1 transition-colors" title="Copia o IMEI automaticamente e abre a janela oficial Celular Legal da Anatel">
+                                <i class="fa-solid fa-tower-cell text-emerald-600"></i>
+                                <span>1. Consultar Anatel (Pop-up)</span>
+                            </button>
+                            <button type="button" onclick="abrirConsultaApplePopup('cad-identificador-valor')" class="px-2.5 py-1 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-800 border border-blue-200 text-[11px] font-bold flex items-center gap-1 transition-colors" title="Copia o IMEI/Serial e abre a consulta oficial de Cobertura e Garantia da Apple">
+                                <i class="fa-brands fa-apple text-blue-600"></i>
+                                <span>2. Garantia Apple (Pop-up)</span>
+                            </button>
+                        </div>
                     </div>
+
+                    <!-- Painel Dinâmico de Resultado da Consulta do IMEI -->
+                    <div id="painel-status-imei-cadastro" class="hidden rounded-xl p-3 text-xs space-y-1.5 border"></div>
                 </div>
 
                 <!-- Bateria com Slider Dinâmico -->
@@ -1663,16 +1702,42 @@
                                         <option value="">-- Selecione o Modelo do Catálogo --</option>
                                     </select>
                                 </div>
-                                <div class="grid grid-cols-2 gap-2">
+                                <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
                                     <div>
-                                        <label class="block text-[11px] font-bold text-slate-700 mb-1">IMEI ou Serial</label>
-                                        <input type="text" id="ti-identificador" placeholder="IMEI na troca" class="w-full bg-white border border-slate-200 rounded-xl px-3 py-1.5 text-xs font-mono">
+                                        <div class="flex items-center justify-between mb-1">
+                                            <label class="block text-[11px] font-bold text-slate-700">IMEI ou Serial na Troca</label>
+                                            <span id="ti-imei-contador" class="text-[9px] font-mono font-bold text-slate-400">0/15</span>
+                                        </div>
+                                        <div class="flex items-center gap-1">
+                                            <input type="text" id="ti-identificador" oninput="aoDigitarIMEITradeIn(this.value)" placeholder="IMEI (*#06#)" class="w-full bg-white border border-slate-200 rounded-xl px-2.5 py-1.5 text-xs font-mono font-bold">
+                                            <button type="button" onclick="verificarIMEITradeIn()" class="px-2 py-1.5 rounded-xl bg-slate-900 text-white text-[10px] font-bold shrink-0" title="Validar IMEI do aparelho de troca">
+                                                <i class="fa-solid fa-magnifying-glass"></i>
+                                            </button>
+                                        </div>
                                     </div>
                                     <div>
                                         <label class="block text-[11px] font-bold text-yellow-800 mb-1">Valor Avaliação (R$)</label>
                                         <input type="number" step="0.01" id="ti-valor-avaliado" value="0.00" oninput="calcularCheckoutVenda()" class="w-full bg-white border border-yellow-400 rounded-xl px-3 py-1.5 text-xs font-mono font-bold text-slate-900">
                                     </div>
                                 </div>
+                                <div class="flex flex-wrap items-center justify-between gap-1.5 pt-1">
+                                    <div class="flex items-center gap-1">
+                                        <button type="button" onclick="abrirConsultaAnatelPopup('ti-identificador', 'ti-imei-status')" class="px-2 py-1 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 text-[10px] font-bold flex items-center gap-1">
+                                            <i class="fa-solid fa-tower-cell"></i>
+                                            <span>Anatel (Pop-up)</span>
+                                        </button>
+                                        <button type="button" onclick="abrirConsultaApplePopup('ti-identificador')" class="px-2 py-1 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-800 border border-blue-200 text-[10px] font-bold flex items-center gap-1">
+                                            <i class="fa-brands fa-apple"></i>
+                                            <span>Apple</span>
+                                        </button>
+                                    </div>
+                                    <select id="ti-imei-status" class="bg-white border border-slate-200 rounded-lg px-2 py-1 text-[10px] font-bold text-slate-800">
+                                        <option value="limpo">✅ IMEI Limpo</option>
+                                        <option value="pendente" selected>⏳ Não Verificado</option>
+                                        <option value="restricao">🚫 Com Restrição</option>
+                                    </select>
+                                </div>
+                                <div id="painel-status-imei-tradein" class="hidden rounded-xl p-2.5 text-[11px] space-y-1 border"></div>
                             </div>
                         </div>
 

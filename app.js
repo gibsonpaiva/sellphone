@@ -659,16 +659,42 @@ function renderEstoque() {
                         </span>
                     </div>
 
-                    <!-- Identificador Serial/IMEI em Pílula -->
-                    <div class="flex items-center justify-between p-2.5 bg-slate-50 rounded-2xl border border-slate-100 mb-3">
-                        <div class="overflow-hidden">
-                            <span class="text-[9px] uppercase font-bold text-slate-400 block">${d.identificador_tipo}</span>
-                            <span class="font-mono text-xs font-bold text-slate-800 tracking-wider truncate block">${d.identificador_valor}</span>
-                        </div>
-                        <button onclick="copiarTexto('${d.identificador_valor}')" class="p-1.5 text-slate-400 hover:text-slate-700 rounded-lg hover:bg-slate-200/50">
-                            <i class="fa-regular fa-copy text-xs"></i>
-                        </button>
-                    </div>
+                    <!-- Identificador Serial/IMEI em Pílula + Selo de Status IMEI -->
+                    ${(() => {
+                        let chkObj = d.checklist_tecnico;
+                        if (typeof chkObj === 'string') {
+                            try { chkObj = JSON.parse(chkObj); } catch (e) { chkObj = {}; }
+                        }
+                        chkObj = chkObj || {};
+                        const imeiStatus = chkObj.imei_status || 'pendente';
+                        let badgeImei = '';
+                        if (imeiStatus === 'limpo') {
+                            badgeImei = `<span class="text-[9px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200 flex items-center gap-1"><i class="fa-solid fa-shield-check text-emerald-600"></i>Limpo</span>`;
+                        } else if (imeiStatus === 'restricao') {
+                            badgeImei = `<span class="text-[9px] font-bold px-2 py-0.5 rounded-full bg-rose-100 text-rose-800 border border-rose-200 flex items-center gap-1"><i class="fa-solid fa-ban text-rose-600"></i>Restrição</span>`;
+                        } else {
+                            badgeImei = `<button type="button" onclick="abrirModalEditarAparelho('${d.id}')" title="Clique para verificar este IMEI na Anatel/GSMA" class="text-[9px] font-bold px-2 py-0.5 rounded-full bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 flex items-center gap-1 transition-colors"><i class="fa-solid fa-clock"></i>Verificar</button>`;
+                        }
+                        return `
+                            <div class="flex items-center justify-between p-2.5 bg-slate-50 rounded-2xl border ${imeiStatus === 'restricao' ? 'border-rose-300 bg-rose-50/40' : 'border-slate-100'} mb-3 gap-2">
+                                <div class="overflow-hidden min-w-0 flex-1">
+                                    <div class="flex items-center gap-1.5 mb-0.5">
+                                        <span class="text-[9px] uppercase font-bold text-slate-400">${d.identificador_tipo}</span>
+                                        ${badgeImei}
+                                    </div>
+                                    <span class="font-mono text-xs font-bold text-slate-800 tracking-wider truncate block">${d.identificador_valor}</span>
+                                </div>
+                                <div class="flex items-center gap-1 shrink-0">
+                                    <button onclick="abrirConsultaAnatelDireto('${d.identificador_valor}', '${d.id}')" title="Copiar IMEI e consultar na Anatel (Celular Legal)" class="p-1.5 text-emerald-600 hover:text-emerald-800 rounded-lg hover:bg-emerald-100/60 transition-colors">
+                                        <i class="fa-solid fa-tower-cell text-xs"></i>
+                                    </button>
+                                    <button onclick="copiarTexto('${d.identificador_valor}')" title="Copiar ${d.identificador_tipo}" class="p-1.5 text-slate-400 hover:text-slate-700 rounded-lg hover:bg-slate-200/50">
+                                        <i class="fa-regular fa-copy text-xs"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        `;
+                    })()}
 
                     <!-- Bateria com Medidor Circular + Grau Estético -->
                     <div class="flex items-center justify-between py-2 border-y border-slate-100">
@@ -699,15 +725,32 @@ function renderEstoque() {
 
                 <!-- Botões de Ação: Venda, Galeria, Edição e Exclusão -->
                 <div class="pt-2 flex items-center gap-1.5">
-                    ${d.status === 'Em Estoque' ? `
-                        <button onclick="iniciarVendaAparelho('${d.id}')" class="flex-1 py-2.5 bg-[#121316] hover:bg-slate-800 text-white rounded-full text-xs font-bold flex items-center justify-center gap-2 shadow-sm transition-all truncate px-2">
-                            <i class="fa-solid fa-cart-shopping"></i> Vender
-                        </button>
-                    ` : `
-                        <div class="flex-1 py-2 bg-slate-100 text-slate-400 rounded-full text-xs font-semibold text-center truncate px-2">
-                            Indisponível (${d.status})
-                        </div>
-                    `}
+                    ${(() => {
+                        let chkObj = d.checklist_tecnico;
+                        if (typeof chkObj === 'string') {
+                            try { chkObj = JSON.parse(chkObj); } catch (e) { chkObj = {}; }
+                        }
+                        const temRestricaoImei = chkObj && chkObj.imei_status === 'restricao';
+                        if (temRestricaoImei) {
+                            return `
+                                <button onclick="abrirModalEditarAparelho('${d.id}')" class="flex-1 py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-full text-xs font-bold flex items-center justify-center gap-1.5 shadow-sm transition-all truncate px-2" title="Este aparelho está marcado com restrição de IMEI. Clique para revisar.">
+                                    <i class="fa-solid fa-ban"></i> Bloqueado (IMEI)
+                                </button>
+                            `;
+                        }
+                        if (d.status === 'Em Estoque') {
+                            return `
+                                <button onclick="iniciarVendaAparelho('${d.id}')" class="flex-1 py-2.5 bg-[#121316] hover:bg-slate-800 text-white rounded-full text-xs font-bold flex items-center justify-center gap-2 shadow-sm transition-all truncate px-2">
+                                    <i class="fa-solid fa-cart-shopping"></i> Vender
+                                </button>
+                            `;
+                        }
+                        return `
+                            <div class="flex-1 py-2 bg-slate-100 text-slate-400 rounded-full text-xs font-semibold text-center truncate px-2">
+                                Indisponível (${d.status})
+                            </div>
+                        `;
+                    })()}
 
                     <!-- Botão de Fotos / Galeria -->
                     ${temFotos ? `
@@ -781,7 +824,7 @@ function abrirModalEditarAparelho(dispId) {
         document.getElementById('cad-ciclos').value = '';
     }
 
-    // Checklist técnico
+    // Checklist técnico + Status do IMEI
     let chk = disp.checklist_tecnico;
     if (typeof chk === 'string') {
         try { chk = JSON.parse(chk); } catch (e) { chk = {}; }
@@ -791,6 +834,11 @@ function abrirModalEditarAparelho(dispId) {
     document.getElementById('chk-tela').checked = chk.tela_original !== false;
     document.getElementById('chk-bateria').checked = chk.bateria_original !== false;
     document.getElementById('chk-truetone').checked = chk.true_tone !== false;
+    const selImeiStatus = document.getElementById('cad-imei-status');
+    if (selImeiStatus) {
+        selImeiStatus.value = chk.imei_status || 'pendente';
+    }
+    aoDigitarIMEICadastro(disp.identificador_valor || '');
 
     document.getElementById('cad-custo-compra').value = (disp.custo_compra || 0).toFixed(2);
     document.getElementById('cad-custos-extras').value = (disp.custos_adicionais || 0).toFixed(2);
@@ -1331,7 +1379,7 @@ async function excluirPedido(pedidoId, numeroPedido, btnEl) {
 }
 
 // ==============================================================================
-// MODAL DE CADASTRO DE APARELHO
+// MODAL DE CADASTRO DE APARELHO & VERIFICAÇÃO DE IMEI
 // ==============================================================================
 function openModalCadastroAparelho() {
     document.getElementById('form-cadastro-aparelho').reset();
@@ -1344,6 +1392,16 @@ function openModalCadastroAparelho() {
     renderPreviewFotosCadastro();
 
     document.getElementById('cad-status').value = 'Em Estoque';
+    const selImeiStatus = document.getElementById('cad-imei-status');
+    if (selImeiStatus) selImeiStatus.value = 'pendente';
+    const painelImei = document.getElementById('painel-status-imei-cadastro');
+    if (painelImei) {
+        painelImei.className = 'hidden rounded-xl p-3 text-xs space-y-1.5 border';
+        painelImei.innerHTML = '';
+    }
+    const contadorImei = document.getElementById('cad-imei-contador');
+    if (contadorImei) contadorImei.innerText = '0/15 dígitos';
+
     document.getElementById('cad-bateria').value = 100;
     document.getElementById('cad-bateria-num').value = 100;
     atualizarIndicadorBateria(100);
@@ -1352,6 +1410,347 @@ function openModalCadastroAparelho() {
     atualizarModelosSugeridos();
     calcularMargensCadastro();
     openModal('modal-cadastro-aparelho');
+}
+
+function calcularDigitoLuhnLocal(imei14) {
+    const digitos = String(imei14 || '').replace(/\D/g, '').slice(0, 14);
+    if (digitos.length !== 14) return null;
+    let soma = 0;
+    for (let i = 0; i < 14; i++) {
+        let n = parseInt(digitos[i], 10);
+        if (i % 2 === 1) {
+            n *= 2;
+            if (n > 9) n -= 9;
+        }
+        soma += n;
+    }
+    const resto = soma % 10;
+    return resto === 0 ? 0 : (10 - resto);
+}
+
+let _debounceImeiTimer = null;
+
+function aoDigitarIMEICadastro(valor) {
+    const tipoEl = document.getElementById('cad-identificador-tipo');
+    const tipo = tipoEl ? tipoEl.value : 'IMEI';
+    const contador = document.getElementById('cad-imei-contador');
+    const painel = document.getElementById('painel-status-imei-cadastro');
+    const limpo = (valor || '').trim();
+    const apenasDigitos = limpo.replace(/\D/g, '');
+
+    if (!limpo) {
+        if (contador) {
+            contador.innerText = tipo === 'Serial' ? '0 caracteres' : '0/15 dígitos';
+            contador.className = 'text-[10px] font-mono font-bold text-slate-400';
+        }
+        if (painel) {
+            painel.classList.add('hidden');
+            painel.innerHTML = '';
+        }
+        return;
+    }
+
+    const temLetras = /[A-Za-z]/.test(limpo) || tipo === 'Serial';
+    if (temLetras) {
+        const serialLimpo = limpo.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+        if (contador) {
+            contador.innerText = `${serialLimpo.length} caracteres (Serial)`;
+            contador.className = 'text-[10px] font-mono font-bold text-blue-600';
+        }
+        if (serialLimpo.length >= 8) {
+            clearTimeout(_debounceImeiTimer);
+            _debounceImeiTimer = setTimeout(() => verificarIMEICadastro(true), 350);
+        }
+        return;
+    }
+
+    const qtd = apenasDigitos.length;
+    if (contador) {
+        if (qtd === 15) {
+            const dvEsp = calcularDigitoLuhnLocal(apenasDigitos.slice(0, 14));
+            const valido = parseInt(apenasDigitos[14], 10) === dvEsp;
+            contador.innerText = valido ? '15/15 dígitos • Luhn OK' : `15/15 • Dígito final esperado: ${dvEsp}`;
+            contador.className = valido
+                ? 'text-[10px] font-mono font-bold text-emerald-600'
+                : 'text-[10px] font-mono font-bold text-rose-600';
+        } else {
+            contador.innerText = `${qtd}/15 dígitos`;
+            contador.className = qtd > 15
+                ? 'text-[10px] font-mono font-bold text-rose-600'
+                : 'text-[10px] font-mono font-bold text-amber-600';
+        }
+    }
+
+    // Dispara consulta automática ao atingir 14 ou 15 dígitos
+    if (qtd >= 14) {
+        clearTimeout(_debounceImeiTimer);
+        _debounceImeiTimer = setTimeout(() => verificarIMEICadastro(true), 250);
+    } else if (painel) {
+        painel.className = 'rounded-xl p-2.5 text-xs border bg-slate-100 border-slate-200 text-slate-600';
+        painel.innerHTML = `<i class="fa-solid fa-keyboard mr-1.5 text-slate-400"></i>Continue digitando os 15 números do IMEI (faltam <strong>${15 - qtd}</strong> dígitos)...`;
+    }
+}
+
+async function verificarIMEICadastro(silencioso = false) {
+    const input = document.getElementById('cad-identificador-valor');
+    const painel = document.getElementById('painel-status-imei-cadastro');
+    const editId = document.getElementById('disp-edit-id') ? document.getElementById('disp-edit-id').value : '';
+    if (!input || !painel) return;
+
+    const valor = input.value.trim();
+    if (!valor) {
+        if (!silencioso) alert("Digite o número do IMEI (*#06#) ou Serial para consultar.");
+        return;
+    }
+
+    await executarConsultaIMEIPainel(valor, editId, painel, 'cad-identificador-valor', 'cad-modelo', 'cad-imei-status');
+}
+
+function aoDigitarIMEITradeIn(valor) {
+    const contador = document.getElementById('ti-imei-contador');
+    const painel = document.getElementById('painel-status-imei-tradein');
+    const limpo = (valor || '').trim();
+    const apenasDigitos = limpo.replace(/\D/g, '');
+
+    if (!limpo) {
+        if (contador) contador.innerText = '0/15';
+        if (painel) {
+            painel.classList.add('hidden');
+            painel.innerHTML = '';
+        }
+        return;
+    }
+
+    const qtd = apenasDigitos.length;
+    if (contador) {
+        if (qtd === 15) {
+            const dvEsp = calcularDigitoLuhnLocal(apenasDigitos.slice(0, 14));
+            const valido = parseInt(apenasDigitos[14], 10) === dvEsp;
+            contador.innerText = valido ? '15/15 OK' : `Erro DV (${dvEsp})`;
+            contador.className = valido ? 'text-[9px] font-mono font-bold text-emerald-600' : 'text-[9px] font-mono font-bold text-rose-600';
+        } else {
+            contador.innerText = `${qtd}/15`;
+            contador.className = 'text-[9px] font-mono font-bold text-amber-600';
+        }
+    }
+
+    if (qtd >= 14 || (/[A-Za-z]/.test(limpo) && limpo.length >= 8)) {
+        clearTimeout(_debounceImeiTimer);
+        _debounceImeiTimer = setTimeout(() => verificarIMEITradeIn(true), 250);
+    }
+}
+
+async function verificarIMEITradeIn(silencioso = false) {
+    const input = document.getElementById('ti-identificador');
+    const painel = document.getElementById('painel-status-imei-tradein');
+    if (!input || !painel) return;
+    const valor = input.value.trim();
+    if (!valor) {
+        if (!silencioso) alert("Digite o IMEI do aparelho de troca primeiro.");
+        return;
+    }
+    await executarConsultaIMEIPainel(valor, null, painel, 'ti-identificador', 'ti-modelo', 'ti-imei-status');
+}
+
+async function executarConsultaIMEIPainel(valor, ignorarDispId, painelEl, inputId, selectModeloId, selectStatusId) {
+    painelEl.className = 'rounded-xl p-3 text-xs border bg-slate-100 border-slate-200 text-slate-700';
+    painelEl.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin mr-1.5 text-slate-600"></i>Consultando autenticidade GSMA, prefixo TAC e histórico da loja...`;
+
+    try {
+        const res = await fetch('/api/imei/consultar', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ imei: valor, ignorar_disp_id: ignorarDispId || null })
+        });
+        const data = await res.json();
+        if (!res.ok || data.error) {
+            throw new Error(data.error || 'Falha ao consultar IMEI.');
+        }
+
+        const analise = data.analise || {};
+        const tacInfo = data.tac_info || {};
+        const hist = data.historico_loja || {};
+
+        // Se o TAC sugerir um modelo e o campo de modelo estiver vazio, sugere/seleciona
+        if (tacInfo.modelo_sugerido && selectModeloId) {
+            const selMod = document.getElementById(selectModeloId);
+            if (selMod && !selMod.value) {
+                const matchOpt = Array.from(selMod.options).find(o => o.value.toLowerCase() === tacInfo.modelo_sugerido.toLowerCase());
+                if (matchOpt) {
+                    selMod.value = matchOpt.value;
+                    if (selectModeloId === 'cad-modelo') aoSelecionarModeloCadastro();
+                }
+            }
+        }
+
+        // Define cor do painel conforme resultado
+        const luhnOk = analise.valido_luhn;
+        const temDuplicidadeEstoque = hist.em_estoque_agora;
+
+        if (!luhnOk) {
+            painelEl.className = 'rounded-xl p-3 text-xs space-y-1.5 border bg-rose-50 border-rose-200 text-rose-900';
+        } else if (temDuplicidadeEstoque) {
+            painelEl.className = 'rounded-xl p-3 text-xs space-y-1.5 border bg-amber-50 border-amber-300 text-amber-900';
+        } else {
+            painelEl.className = 'rounded-xl p-3 text-xs space-y-1.5 border bg-emerald-50/80 border-emerald-200 text-emerald-950';
+        }
+
+        let html = `
+            <div class="flex items-start justify-between gap-2">
+                <div class="font-bold flex items-center gap-1.5">
+                    <i class="fa-solid ${luhnOk ? 'fa-circle-check text-emerald-600' : 'fa-triangle-exclamation text-rose-600'}"></i>
+                    <span>${analise.mensagem_validacao || ''}</span>
+                </div>
+                ${(!luhnOk && analise.imei_sugerido) ? `
+                    <button type="button" onclick="aplicarIMEISugerido('${inputId}', '${analise.imei_sugerido}')" class="px-2 py-0.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-[10px] font-bold shrink-0">
+                        Corrigir p/ ${analise.imei_sugerido}
+                    </button>
+                ` : ''}
+            </div>
+        `;
+
+        if (tacInfo.tac) {
+            html += `
+                <div class="text-[11px] opacity-90 flex flex-wrap items-center gap-x-3 gap-y-1 pt-0.5">
+                    <span><strong>TAC GSMA:</strong> <code class="font-mono">${tacInfo.tac}</code></span>
+                    ${tacInfo.orgao_homologador ? `<span><strong>Origem:</strong> ${tacInfo.orgao_homologador}</span>` : ''}
+                    ${tacInfo.modelo_sugerido ? `<span class="px-1.5 py-0.5 rounded bg-white/80 border border-emerald-300 font-bold text-emerald-800">Modelo TAC: ${tacInfo.modelo_sugerido}</span>` : ''}
+                </div>
+            `;
+        }
+
+        // Histórico interno na iLion Store
+        if (hist.ja_cadastrado || hist.ja_vendido_pela_loja || hist.ja_entrou_em_tradein) {
+            html += `
+                <div class="p-2 rounded-lg bg-amber-100/80 border border-amber-300 text-amber-950 text-[11px] font-semibold">
+                    <i class="fa-solid fa-clock-rotate-left mr-1 text-amber-700"></i>${hist.resumo_alerta}
+                </div>
+            `;
+        } else {
+            html += `
+                <div class="text-[11px] text-emerald-800 font-medium">
+                    <i class="fa-solid fa-database mr-1 text-emerald-600"></i><strong>Banco da Loja:</strong> Sem duplicidade (nunca cadastrado ou vendido antes na iLion Store).
+                </div>
+            `;
+        }
+
+        // Botões rápidos de decisão após conferir na Anatel/Apple
+        if (selectStatusId) {
+            html += `
+                <div class="pt-1.5 border-t border-black/10 flex flex-wrap items-center justify-between gap-2">
+                    <span class="text-[10px] font-bold uppercase tracking-wide opacity-75">Resultado da conferência Anatel / iCloud:</span>
+                    <div class="flex items-center gap-1.5">
+                        <button type="button" onclick="definirStatusIMEIRapido('${selectStatusId}', 'limpo')" class="px-2 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-bold flex items-center gap-1">
+                            <i class="fa-solid fa-check"></i> Marcar IMEI Limpo
+                        </button>
+                        <button type="button" onclick="definirStatusIMEIRapido('${selectStatusId}', 'restricao')" class="px-2 py-1 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-[10px] font-bold flex items-center gap-1">
+                            <i class="fa-solid fa-ban"></i> Com Restrição
+                        </button>
+                    </div>
+                </div>
+            `;
+        }
+
+        painelEl.innerHTML = html;
+    } catch (err) {
+        painelEl.className = 'rounded-xl p-3 text-xs border bg-rose-50 border-rose-200 text-rose-800';
+        painelEl.innerHTML = `<i class="fa-solid fa-circle-exclamation mr-1"></i>${err.message}`;
+    }
+}
+
+function aplicarIMEISugerido(inputId, imeiCorrigido) {
+    const el = document.getElementById(inputId);
+    if (!el) return;
+    el.value = imeiCorrigido;
+    if (inputId === 'cad-identificador-valor') {
+        aoDigitarIMEICadastro(imeiCorrigido);
+    } else {
+        aoDigitarIMEITradeIn(imeiCorrigido);
+    }
+}
+
+function definirStatusIMEIRapido(selectStatusId, novoStatus) {
+    const sel = document.getElementById(selectStatusId);
+    if (sel) {
+        sel.value = novoStatus;
+        showToast(novoStatus === 'limpo' ? "IMEI marcado como Regular / Limpo!" : "IMEI marcado com Restrição!");
+    }
+}
+
+function abrirConsultaAnatelPopup(inputId, selectStatusId) {
+    const el = document.getElementById(inputId);
+    const valor = el ? el.value.trim().replace(/\D/g, '') : '';
+    if (!valor) {
+        alert("Digite o número do IMEI primeiro para consultar na Anatel.");
+        if (el) el.focus();
+        return;
+    }
+    if (navigator.clipboard) {
+        navigator.clipboard.writeText(valor).catch(() => {});
+    }
+    showToast(`IMEI ${valor} copiado! Aperte Cmd+V (Colar) na janela da Anatel.`);
+
+    // Abre pop-up lateral posicionado à direita da tela para fácil leitura lado a lado
+    const largura = 560;
+    const altura = 720;
+    const left = Math.max(0, (window.screen.width - largura - 40));
+    const top = Math.max(0, Math.round((window.screen.height - altura) / 2));
+    window.open(
+        'https://www.consultaserialaparelho.com.br/public-web/welcome',
+        'ConsultaAnatelIMEI',
+        `width=${largura},height=${altura},left=${left},top=${top},resizable=yes,scrollbars=yes`
+    );
+
+    // Também executa a validação local se ainda não foi exibida
+    if (inputId === 'cad-identificador-valor') {
+        verificarIMEICadastro(true);
+    } else if (inputId === 'ti-identificador') {
+        verificarIMEITradeIn(true);
+    }
+}
+
+function abrirConsultaApplePopup(inputId) {
+    const el = document.getElementById(inputId);
+    const valor = el ? el.value.trim() : '';
+    if (!valor) {
+        alert("Digite o IMEI ou Número de Série primeiro para consultar na Apple.");
+        if (el) el.focus();
+        return;
+    }
+    if (navigator.clipboard) {
+        navigator.clipboard.writeText(valor).catch(() => {});
+    }
+    showToast(`Código ${valor} copiado! Aperte Cmd+V na janela da Apple.`);
+
+    const largura = 580;
+    const altura = 720;
+    const left = Math.max(0, (window.screen.width - largura - 40));
+    const top = Math.max(0, Math.round((window.screen.height - altura) / 2));
+    window.open(
+        'https://checkcoverage.apple.com/?locale=pt_BR',
+        'ConsultaAppleCoverage',
+        `width=${largura},height=${altura},left=${left},top=${top},resizable=yes,scrollbars=yes`
+    );
+}
+
+function abrirConsultaAnatelDireto(imeiValor, dispId) {
+    const limpo = String(imeiValor || '').trim();
+    if (navigator.clipboard && limpo) {
+        navigator.clipboard.writeText(limpo).catch(() => {});
+    }
+    showToast(`IMEI ${limpo} copiado! Cole (Cmd+V) na janela da Anatel.`);
+    const largura = 560;
+    const altura = 720;
+    const left = Math.max(0, (window.screen.width - largura - 40));
+    const top = Math.max(0, Math.round((window.screen.height - altura) / 2));
+    window.open(
+        'https://www.consultaserialaparelho.com.br/public-web/welcome',
+        'ConsultaAnatelIMEI',
+        `width=${largura},height=${altura},left=${left},top=${top},resizable=yes,scrollbars=yes`
+    );
+    if (dispId) {
+        abrirModalEditarAparelho(dispId);
+    }
 }
 
 function atualizarModelosSugeridos() {
@@ -1425,12 +1824,34 @@ async function salvarNovoDispositivo(e) {
     e.preventDefault();
 
     const editId = document.getElementById('disp-edit-id').value;
+    const tipoIdent = document.getElementById('cad-identificador-tipo').value;
+    const valorIdent = document.getElementById('cad-identificador-valor').value.trim();
+    const imeiStatus = document.getElementById('cad-imei-status') ? document.getElementById('cad-imei-status').value : 'pendente';
+
+    // Se for IMEI numérico de 15 dígitos com erro de dígito verificador Luhn, alerta o operador antes de salvar
+    const apenasDigitos = valorIdent.replace(/\D/g, '');
+    if (tipoIdent === 'IMEI' && !/[A-Za-z]/.test(valorIdent)) {
+        if (apenasDigitos.length === 15) {
+            const dvEsp = calcularDigitoLuhnLocal(apenasDigitos.slice(0, 14));
+            if (parseInt(apenasDigitos[14], 10) !== dvEsp) {
+                const confirmar = confirm(
+                    `ATENÇÃO: O IMEI informado (${apenasDigitos}) possui um erro matemático no 15º dígito verificador!\n\n` +
+                    `Dígito final digitado: ${apenasDigitos[14]}\n` +
+                    `Dígito final esperado (GSMA Luhn): ${dvEsp}\n\n` +
+                    `Deseja salvar mesmo assim? (Clique em Cancelar para corrigir)`
+                );
+                if (!confirmar) return;
+            }
+        }
+    }
 
     const checklist = {
         face_touch_id: document.getElementById('chk-facetouch').checked,
         tela_original: document.getElementById('chk-tela').checked,
         bateria_original: document.getElementById('chk-bateria').checked,
-        true_tone: document.getElementById('chk-truetone').checked
+        true_tone: document.getElementById('chk-truetone').checked,
+        imei_status: imeiStatus,
+        imei_verificado_em: imeiStatus !== 'pendente' ? new Date().toISOString() : null
     };
 
     const payload = {
@@ -1438,8 +1859,8 @@ async function salvarNovoDispositivo(e) {
         modelo: document.getElementById('cad-modelo').value.trim(),
         capacidade: document.getElementById('cad-capacidade').value,
         cor: document.getElementById('cad-cor').value.trim(),
-        identificador_tipo: document.getElementById('cad-identificador-tipo').value,
-        identificador_valor: document.getElementById('cad-identificador-valor').value.trim(),
+        identificador_tipo: tipoIdent,
+        identificador_valor: valorIdent,
         saude_bateria: parseInt(document.getElementById('cad-bateria').value),
         ciclos_bateria: document.getElementById('cad-ciclos').value ? parseInt(document.getElementById('cad-ciclos').value) : null,
         condicao_grau: document.getElementById('cad-grau').value,
@@ -1487,6 +1908,13 @@ function openModalVendaTradeIn() {
     atualizarSelectsModelos();
     document.getElementById('form-venda-tradein').reset();
     document.getElementById('toggle-tradein').checked = false;
+    const painelTi = document.getElementById('painel-status-imei-tradein');
+    if (painelTi) {
+        painelTi.className = 'hidden rounded-xl p-2.5 text-[11px] space-y-1 border';
+        painelTi.innerHTML = '';
+    }
+    const selTiStatus = document.getElementById('ti-imei-status');
+    if (selTiStatus) selTiStatus.value = 'pendente';
     toggleFormTradeIn(false);
     calcularCheckoutVenda();
     openModal('modal-venda-tradein');
@@ -1504,7 +1932,14 @@ function iniciarVendaAparelho(dispId) {
 function atualizarSelectsAparelhosVenda() {
     const select = document.getElementById('venda-dispositivo-select');
     if (!select) return;
-    const disponiveis = AppState.dispositivos.filter(d => d.status === 'Em Estoque');
+    const disponiveis = AppState.dispositivos.filter(d => {
+        if (d.status !== 'Em Estoque') return false;
+        let chk = d.checklist_tecnico;
+        if (typeof chk === 'string') {
+            try { chk = JSON.parse(chk); } catch (e) { chk = {}; }
+        }
+        return !(chk && chk.imei_status === 'restricao');
+    });
 
     select.innerHTML = '<option value="">-- Selecione o aparelho disponível --</option>' + 
         disponiveis.map(d => `
@@ -1536,7 +1971,7 @@ function aoSelecionarAparelhoVenda(dispId) {
     const disp = AppState.dispositivos.find(d => d.id === dispId);
     if (disp) {
         detalheBox.classList.remove('hidden');
-        document.getElementById('venda-aparelho-specs').innerText = `${disp.modelo} ${disp.capacidade} &bull; Bateria ${disp.saude_bateria}%`;
+        document.getElementById('venda-aparelho-specs').innerText = `${disp.modelo} ${disp.capacidade} • Bateria ${disp.saude_bateria}%`;
         document.getElementById('venda-aparelho-preco').innerText = formatMoeda(disp.preco_sugerido);
     }
     calcularCheckoutVenda();
@@ -1597,6 +2032,11 @@ async function processarVendaComTradeIn(e) {
 
     let tradeInPayload = null;
     if (isTradeIn && valorTradeIn > 0) {
+        const tiStatusImei = document.getElementById('ti-imei-status') ? document.getElementById('ti-imei-status').value : 'pendente';
+        if (tiStatusImei === 'restricao') {
+            alert("BLOQUEIO DE SEGURANÇA: O aparelho de troca (Trade-In) foi marcado com RESTRIÇÃO DE IMEI (Anatel / iCloud). Não é permitido receber aparelho bloqueado na troca.");
+            return;
+        }
         tradeInPayload = {
             tipo: 'iPhone',
             modelo: document.getElementById('ti-modelo').value || 'iPhone Usado',
@@ -1607,7 +2047,15 @@ async function processarVendaComTradeIn(e) {
             saude_bateria: 85,
             condicao_grau: 'Grau B (Leves marcas)',
             preco_sugerido_revenda: valorTradeIn * 1.35,
-            preco_minimo_revenda: valorTradeIn * 1.20
+            preco_minimo_revenda: valorTradeIn * 1.20,
+            checklist_tecnico: {
+                face_touch_id: true,
+                tela_original: true,
+                bateria_original: true,
+                true_tone: true,
+                imei_status: tiStatusImei,
+                imei_verificado_em: tiStatusImei !== 'pendente' ? new Date().toISOString() : null
+            }
         };
     }
 

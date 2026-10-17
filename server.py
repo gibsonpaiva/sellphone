@@ -991,6 +991,331 @@ def calcular_rota_inteligente(origem, paradas, custom_google_key=None, otimizar=
 def calcular_rota_osrm(origem, paradas):
     return calcular_rota_inteligente(origem, paradas)
 
+
+# ==============================================================================
+# MOTOR DE VERIFICAÇÃO E CONSULTA DE IMEI (GSMA LUHN + TAC + HISTÓRICO LOJA)
+# ==============================================================================
+
+# Base de Reporting Body Identifiers (RBI - 2 primeiros dígitos do IMEI na GSMA)
+GSMA_RBI_ORIGENS = {
+    '01': 'PTCRB (Estados Unidos / América do Norte)',
+    '10': 'DECT',
+    '30': 'Iridium',
+    '33': 'DGPT (França)',
+    '35': 'BABT (Global / Internacional - Padrão Apple/Anatel)',
+    '44': 'BABT (Reino Unido)',
+    '45': 'NTA (Dinamarca)',
+    '49': 'BZT / BAPT (Alemanha)',
+    '50': 'BZT ETS (Alemanha)',
+    '51': 'Cetecom ICT',
+    '52': 'Cetecom',
+    '53': 'TUV',
+    '54': 'Phoebus',
+    '86': 'TAF (China)',
+    '91': 'MSAI (Índia)',
+    '98': 'BABT (Internacional)',
+    '99': 'GHA (Global Hexadecimal / MEID)'
+}
+
+# Base local de TACs Apple comuns e séries conhecidas (8 primeiros dígitos)
+TAC_CONHECIDOS = {
+    '35298411': {'fabricante': 'Apple', 'modelo': 'iPhone 15 Pro Max'},
+    '35492109': {'fabricante': 'Apple', 'modelo': 'iPhone 14 Pro'},
+    '35874109': {'fabricante': 'Apple', 'modelo': 'iPhone 13'},
+    '35987123': {'fabricante': 'Apple', 'modelo': 'iPhone 15'},
+    '35678911': {'fabricante': 'Apple', 'modelo': 'iPhone 15 Pro'},
+    '35432110': {'fabricante': 'Apple', 'modelo': 'iPhone 14 Pro Max'},
+    '35384110': {'fabricante': 'Apple', 'modelo': 'iPhone 14'},
+    '35483209': {'fabricante': 'Apple', 'modelo': 'iPhone 13 Pro Max'},
+    '35304611': {'fabricante': 'Apple', 'modelo': 'iPhone 12'},
+    '35668911': {'fabricante': 'Apple', 'modelo': 'iPhone 11'},
+    '35195811': {'fabricante': 'Apple', 'modelo': 'iPhone 16 Pro Max'},
+    '35209111': {'fabricante': 'Apple', 'modelo': 'iPhone 16 Pro'},
+    '35214411': {'fabricante': 'Apple', 'modelo': 'iPhone 16'}
+}
+
+
+def calcular_digito_luhn_imei(imei_14):
+    """Calcula o 15º dígito verificador oficial GSMA (Algoritmo de Luhn) a partir dos 14 primeiros dígitos."""
+    digitos = re.sub(r'\D', '', str(imei_14 or ''))[:14]
+    if len(digitos) != 14:
+        return None
+    soma = 0
+    for i, ch in enumerate(digitos):
+        n = int(ch)
+        if i % 2 == 1:
+            n *= 2
+            if n > 9:
+                n -= 9
+        soma += n
+    resto = soma % 10
+    return 0 if resto == 0 else (10 - resto)
+
+
+def validar_luhn_imei(valor_raw):
+    """
+    Valida um IMEI (15 dígitos) ou Serial Apple.
+    Retorna dicionário detalhado com autenticidade matemática Luhn, dígito esperado e análise de formato.
+    """
+    limpo = (valor_raw or '').strip()
+    apenas_digitos = re.sub(r'\D', '', limpo)
+
+    # Verifica se é um Serial alfanumérico Apple (normalmente 10 a 12 caracteres alfanuméricos)
+    tem_letras = bool(re.search(r'[A-Za-z]', limpo))
+    if tem_letras:
+        serial_up = re.sub(r'[^A-Za-z0-9]', '', limpo).upper()
+        valido_serial = 8 <= len(serial_up) <= 14
+        return {
+            'tipo_detectado': 'Serial',
+            'valor_limpo': serial_up,
+            'tamanho': len(serial_up),
+            'eh_imei_15_digitos': False,
+            'valido_luhn': valido_serial,
+            'digito_verificador_informado': None,
+            'digito_verificador_esperado': None,
+            'mensagem_validacao': (
+                f'Número de Série Apple válido ({len(serial_up)} caracteres).'
+                if valido_serial else
+                f'Formato de Serial incomum ({len(serial_up)} caracteres). Seriais Apple possuem de 10 a 12 caracteres.'
+            )
+        }
+
+    # Caso numérico (IMEI)
+    qtd = len(apenas_digitos)
+    if qtd < 14:
+        return {
+            'tipo_detectado': 'IMEI',
+            'valor_limpo': apenas_digitos,
+            'tamanho': qtd,
+            'eh_imei_15_digitos': False,
+            'valido_luhn': False,
+            'digito_verificador_informado': None,
+            'digito_verificador_esperado': None,
+            'mensagem_validacao': f'IMEI incompleto: faltam {15 - qtd} dígito(s) (digitados {qtd} de 15).'
+        }
+
+    if qtd == 14:
+        dv_esp = calcular_digito_luhn_imei(apenas_digitos)
+        return {
+            'tipo_detectado': 'IMEI',
+            'valor_limpo': apenas_digitos,
+            'tamanho': 14,
+            'eh_imei_15_digitos': False,
+            'valido_luhn': False,
+            'digito_verificador_informado': None,
+            'digito_verificador_esperado': str(dv_esp),
+            'imei_sugerido': f"{apenas_digitos}{dv_esp}",
+            'mensagem_validacao': f'Falta o 15º dígito verificador. Pelo cálculo oficial GSMA, o último dígito deve ser "{dv_esp}" ({apenas_digitos}{dv_esp}).'
+        }
+
+    if qtd > 15:
+        return {
+            'tipo_detectado': 'IMEI',
+            'valor_limpo': apenas_digitos,
+            'tamanho': qtd,
+            'eh_imei_15_digitos': False,
+            'valido_luhn': False,
+            'digito_verificador_informado': None,
+            'digito_verificador_esperado': None,
+            'mensagem_validacao': f'IMEI com dígitos a mais: foram digitados {qtd} números (o padrão mundial GSMA são exatamente 15 dígitos).'
+        }
+
+    # Exatamente 15 dígitos
+    dv_inf = int(apenas_digitos[14])
+    dv_esp = calcular_digito_luhn_imei(apenas_digitos[:14])
+    valido = (dv_inf == dv_esp)
+
+    return {
+        'tipo_detectado': 'IMEI',
+        'valor_limpo': apenas_digitos,
+        'tamanho': 15,
+        'eh_imei_15_digitos': True,
+        'valido_luhn': valido,
+        'digito_verificador_informado': str(dv_inf),
+        'digito_verificador_esperado': str(dv_esp),
+        'imei_sugerido': f"{apenas_digitos[:14]}{dv_esp}",
+        'mensagem_validacao': (
+            'IMEI matematicamente autêntico (15 dígitos aprovados no cálculo GSMA Luhn).'
+            if valido else
+            f'ATENÇÃO: IMEI com erro de digitação ou inválido! O 15º dígito informado é "{dv_inf}", mas pelo cálculo oficial GSMA deveria ser "{dv_esp}". Confira no *#06# do aparelho.'
+        )
+    }
+
+
+def consultar_historico_imei_loja(conn, valor_limpo, ignorar_disp_id=None):
+    """
+    Busca em todo o banco da iLion Store (Estoque, Vendas e Trade-Ins) se este IMEI/Serial
+    já foi cadastrado, vendido ou recebido em troca anteriormente.
+    """
+    resultado = {
+        'ja_cadastrado': False,
+        'em_estoque_agora': False,
+        'ja_vendido_pela_loja': False,
+        'ja_entrou_em_tradein': False,
+        'registros_estoque': [],
+        'registros_vendas': [],
+        'registros_tradein': [],
+        'resumo_alerta': 'Novo na loja: este IMEI/Serial ainda não consta em nenhum registro anterior da iLion Store.'
+    }
+    if not valor_limpo:
+        return resultado
+
+    c = conn.cursor()
+    # 1. Buscar em dispositivos
+    if ignorar_disp_id:
+        c.execute('''
+            SELECT id, tipo, modelo, capacidade, cor, status, condicao_grau, preco_sugerido, origem, data_entrada, checklist_tecnico
+            FROM dispositivos
+            WHERE lower(trim(identificador_valor)) = lower(trim(?)) AND id != ?
+            ORDER BY created_at DESC
+        ''', (valor_limpo, ignorar_disp_id))
+    else:
+        c.execute('''
+            SELECT id, tipo, modelo, capacidade, cor, status, condicao_grau, preco_sugerido, origem, data_entrada, checklist_tecnico
+            FROM dispositivos
+            WHERE lower(trim(identificador_valor)) = lower(trim(?))
+            ORDER BY created_at DESC
+        ''', (valor_limpo,))
+
+    rows_disp = c.fetchall()
+    disp_ids = []
+    for r in rows_disp:
+        d_dict = dict(r)
+        disp_ids.append(d_dict['id'])
+        if d_dict.get('status') in ('Em Estoque', 'Reservado', 'Em Manutenção/Revisão'):
+            resultado['em_estoque_agora'] = True
+        resultado['registros_estoque'].append({
+            'id': d_dict['id'],
+            'modelo': f"{d_dict.get('modelo', '')} {d_dict.get('capacidade', '')} {d_dict.get('cor', '')}".strip(),
+            'status': d_dict.get('status', ''),
+            'origem': d_dict.get('origem', ''),
+            'data_entrada': (d_dict.get('data_entrada') or '')[:10]
+        })
+
+    # 2. Buscar em vendas (itens_venda + pedidos_venda + clientes)
+    if disp_ids:
+        placeholders = ','.join(['?'] * len(disp_ids))
+        c.execute(f'''
+            SELECT pv.numero_pedido, pv.data_venda, pv.valor_total_liquido, pv.garantia_ate,
+                   cli.nome as cliente_nome, cli.telefone_whatsapp, d.modelo, d.capacidade, d.cor
+            FROM itens_venda iv
+            JOIN pedidos_venda pv ON pv.id = iv.pedido_id
+            JOIN dispositivos d ON d.id = iv.dispositivo_id
+            LEFT JOIN clientes cli ON cli.id = pv.cliente_id
+            WHERE iv.dispositivo_id IN ({placeholders})
+            ORDER BY pv.data_venda DESC
+        ''', tuple(disp_ids))
+        for rv in c.fetchall():
+            vd = dict(rv)
+            resultado['ja_vendido_pela_loja'] = True
+            resultado['registros_vendas'].append({
+                'numero_pedido': vd.get('numero_pedido'),
+                'data_venda': (vd.get('data_venda') or '')[:10],
+                'cliente_nome': vd.get('cliente_nome') or 'Cliente',
+                'valor': vd.get('valor_total_liquido'),
+                'garantia_ate': vd.get('garantia_ate')
+            })
+
+        # 3. Buscar em trocas_trade_in
+        c.execute(f'''
+            SELECT t.data_troca, t.valor_avaliado, cli.nome as cliente_nome, d.modelo, d.capacidade
+            FROM trocas_trade_in t
+            JOIN dispositivos d ON d.id = t.dispositivo_entrada_id
+            LEFT JOIN clientes cli ON cli.id = t.cliente_id
+            WHERE t.dispositivo_entrada_id IN ({placeholders})
+            ORDER BY t.data_troca DESC
+        ''', tuple(disp_ids))
+        for rt in c.fetchall():
+            td = dict(rt)
+            resultado['ja_entrou_em_tradein'] = True
+            resultado['registros_tradein'].append({
+                'data_troca': (td.get('data_troca') or '')[:10],
+                'cliente_nome': td.get('cliente_nome') or 'Cliente',
+                'valor_avaliado': td.get('valor_avaliado')
+            })
+
+    resultado['ja_cadastrado'] = len(resultado['registros_estoque']) > 0
+
+    # Monta resumo claro para o operador
+    partes = []
+    if resultado['em_estoque_agora']:
+        est = resultado['registros_estoque'][0]
+        partes.append(f"DUPLICIDADE: Já consta no estoque atual como '{est['modelo']}' ({est['status']}).")
+    if resultado['ja_vendido_pela_loja']:
+        v = resultado['registros_vendas'][0]
+        partes.append(f"HISTÓRICO DE VENDA: Já foi vendido pela loja no pedido {v['numero_pedido']} para {v['cliente_nome']} em {v['data_venda']}.")
+    if resultado['ja_entrou_em_tradein']:
+        t = resultado['registros_tradein'][0]
+        partes.append(f"HISTÓRICO DE TROCA: Já entrou como Trade-In entregue por {t['cliente_nome']} em {t['data_troca']}.")
+
+    if partes:
+        resultado['resumo_alerta'] = " | ".join(partes)
+
+    return resultado
+
+
+def consultar_imei_completo(valor_raw, ignorar_disp_id=None):
+    """
+    Executa a consulta completa do IMEI/Serial:
+    1. Validação matemática GSMA Luhn (15 dígitos) ou formato Serial Apple
+    2. Decodificação de TAC (8 primeiros dígitos) + RBI (órgão certificador) + cruzamento com modelos já passados na loja
+    3. Varredura de histórico e duplicidade no banco da iLion Store
+    """
+    analise = validar_luhn_imei(valor_raw)
+    valor_limpo = analise.get('valor_limpo', '')
+
+    tac_info = {
+        'tac': None,
+        'rbi_codigo': None,
+        'orgao_homologador': None,
+        'fabricante_provavel': None,
+        'modelo_sugerido': None
+    }
+
+    conn = get_db_connection()
+    try:
+        if analise['tipo_detectado'] == 'IMEI' and len(valor_limpo) >= 8:
+            tac = valor_limpo[:8]
+            rbi = valor_limpo[:2]
+            tac_info['tac'] = tac
+            tac_info['rbi_codigo'] = rbi
+            tac_info['orgao_homologador'] = GSMA_RBI_ORIGENS.get(rbi, 'GSMA Internacional')
+
+            # 1º: Verifica se já temos na base local de TACs conhecidos
+            if tac in TAC_CONHECIDOS:
+                tac_info['fabricante_provavel'] = TAC_CONHECIDOS[tac]['fabricante']
+                tac_info['modelo_sugerido'] = TAC_CONHECIDOS[tac]['modelo']
+            else:
+                # 2º: Verifica se algum aparelho com o mesmo prefixo TAC (8 dígitos) já foi cadastrado na loja
+                c = conn.cursor()
+                c.execute('''
+                    SELECT tipo, modelo FROM dispositivos
+                    WHERE substr(replace(identificador_valor, ' ', ''), 1, 8) = ?
+                      AND modelo IS NOT NULL AND trim(modelo) != ''
+                    LIMIT 1
+                ''', (tac,))
+                row_tac = c.fetchone()
+                if row_tac:
+                    tac_info['fabricante_provavel'] = 'Apple'
+                    tac_info['modelo_sugerido'] = row_tac['modelo']
+                elif rbi in ('35', '01', '99'):
+                    tac_info['fabricante_provavel'] = 'Padrão Global GSMA (Compatível Apple/Anatel)'
+
+        historico = consultar_historico_imei_loja(conn, valor_limpo, ignorar_disp_id=ignorar_disp_id)
+    finally:
+        conn.close()
+
+    return {
+        'sucesso': True,
+        'analise': analise,
+        'tac_info': tac_info,
+        'historico_loja': historico,
+        'portais_oficiais': {
+            'anatel_url': 'https://www.consultaserialaparelho.com.br/public-web/welcome',
+            'apple_coverage_url': 'https://checkcoverage.apple.com/?locale=pt_BR'
+        }
+    }
+
 # ==============================================================================
 # INICIALIZAÇÃO DO BANCO DE DADOS LOCAL (SQLITE3)
 # ==============================================================================
@@ -2245,6 +2570,15 @@ class AppleStoreHandler(http.server.SimpleHTTPRequestHandler):
                 if disp_row['status'] != 'Em Estoque':
                     self.send_json({'error': f"O aparelho '{disp_row['modelo']}' (IMEI/Serial: {disp_row['identificador_valor']}) já consta como vendido ou indisponível no estoque."}, 400)
                     return
+
+                # Trava de segurança: impedir venda acidental de aparelho marcado com restrição de IMEI
+                try:
+                    chk_disp = json.loads(disp_row['checklist_tecnico'] or '{}') if isinstance(disp_row['checklist_tecnico'], str) else (disp_row['checklist_tecnico'] or {})
+                    if isinstance(chk_disp, dict) and chk_disp.get('imei_status') == 'restricao':
+                        self.send_json({'error': f"BLOQUEIO DE SEGURANÇA: O aparelho '{disp_row['modelo']}' (IMEI: {disp_row['identificador_valor']}) está marcado com RESTRIÇÃO DE IMEI (Anatel/iCloud) e não pode ser vendido antes de regularização."}, 400)
+                        return
+                except Exception:
+                    pass
                 
                 custo_aquisicao_item = float(disp_row['custo_compra'] or 0) + float(disp_row['custos_adicionais'] or 0)
                 valor_venda_item = float(data.get('valor_subtotal', disp_row['preco_sugerido'] or 0))
@@ -2893,6 +3227,19 @@ O Cedente acima qualificado declara sob as penas da lei (Art. 180 e Art. 299 do 
                 conn = None
                 sync_delete_supabase('rotas_entrega', 'id', rota_id)
                 self.send_json({'success': True, 'message': 'Rota excluída do histórico com sucesso!'})
+                return
+
+            # 18. Consultar e Validar Status de IMEI / Serial (GSMA Luhn + TAC + Histórico Loja)
+            if path == '/api/imei/consultar':
+                conn.close()
+                conn = None
+                valor = (data.get('imei') or data.get('identificador') or '').strip()
+                ignorar_id = (data.get('ignorar_disp_id') or '').strip() or None
+                if not valor:
+                    self.send_json({'error': 'Informe o código do IMEI ou Serial para consultar.'}, 400)
+                    return
+                resultado = consultar_imei_completo(valor, ignorar_disp_id=ignorar_id)
+                self.send_json(resultado, 200)
                 return
 
             self.send_error(404, "Endpoint POST não encontrado")
